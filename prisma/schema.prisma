@@ -65,12 +65,27 @@ model User {
 // ─── Franchises ─────────────────────────────────────────
 
 model Franchise {
-  id       String  @id @default(uuid())
-  name     String
-  location String
-  score    Float   @default(0)
-  status   String  @default("Operativa")
-  active   Boolean @default(true)
+  id              String  @id @default(uuid())
+  name            String
+  location        String  @default("")
+  zona            String  @default("")
+  barrio          String  @default("")
+  address         String  @default("")
+  city            String  @default("")
+  phone           String  @default("")
+  whatsapp1       String  @default("")
+  whatsapp2       String  @default("")
+  googleMaps      String  @default("")
+  email           String  @default("")
+  responsable     String  @default("")
+  status          String  @default("activa")
+  openDate        String  @default("")
+  employees       Int     @default(0)
+  lastAuditScore  Float?
+  monthlyBilling  Float   @default(0)
+  notes           String  @default("")
+  score           Float   @default(0)
+  active          Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
