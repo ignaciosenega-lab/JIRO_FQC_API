@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: jiro
+      POSTGRES_PASSWORD: jiro_secret
+      POSTGRES_DB: jiro_fqc
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  api:
+    build: .
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgresql://jiro:jiro_secret@postgres:5432/jiro_fqc?schema=public
+      JWT_SECRET: ${JWT_SECRET:-change-this-to-a-random-secret}
+      PORT: 4000
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+    depends_on:
+      - postgres
+    volumes:
+      - uploads:/app/uploads
+
+volumes:
+  pgdata:
+  uploads:

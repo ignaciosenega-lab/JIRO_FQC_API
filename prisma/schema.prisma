@@ -1,0 +1,200 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  FRANCHISE
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum VisitStatus {
+  PENDIENTE
+  APROBADA
+  COORDINADA
+  RECHAZADA
+  COMPLETADA
+}
+
+enum ManualItemType {
+  PDF
+  VIDEO
+  TEXT
+  IMAGE
+}
+
+// ─── Users & Auth ───────────────────────────────────────
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role     @default(FRANCHISE)
+  avatar    String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  franchise   Franchise? @relation(fields: [franchiseId], references: [id])
+  franchiseId String?
+
+  tickets        Ticket[]
+  ticketMessages TicketMessage[]
+  visits         VisitRequest[]
+}
+
+// ─── Franchises ─────────────────────────────────────────
+
+model Franchise {
+  id       String  @id @default(uuid())
+  name     String
+  location String
+  score    Float   @default(0)
+  status   String  @default("Operativa")
+  active   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users   User[]
+  tickets Ticket[]
+  visits  VisitRequest[]
+}
+
+// ─── Manual Operativo ───────────────────────────────────
+
+model Category {
+  id          String  @id @default(uuid())
+  title       String  @unique
+  description String  @default("")
+  icon        String  @default("FileText")
+  color       String  @default("text-slate-400")
+  bg          String  @default("bg-slate-400/10")
+  isDefault   Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  items ManualItem[]
+}
+
+model ManualItem {
+  id          String         @id @default(uuid())
+  title       String
+  description String
+  type        ManualItemType
+  fileName    String?
+  fileUrl     String?
+  textContent String?
+  author      String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  category   Category @relation(fields: [categoryId], references: [id])
+  categoryId String
+}
+
+model ManualPdf {
+  id         String   @id @default(uuid())
+  fileName   String
+  fileUrl    String
+  size       String
+  uploadedAt DateTime @default(now())
+  active     Boolean  @default(true)
+}
+
+// ─── Tickets ────────────────────────────────────────────
+
+model Ticket {
+  id           String         @id @default(uuid())
+  title        String
+  description  String
+  status       TicketStatus   @default(OPEN)
+  priority     TicketPriority @default(MEDIUM)
+  category     String
+  responseTime String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdBy   User   @relation(fields: [createdById], references: [id])
+  createdById String
+
+  franchise   Franchise? @relation(fields: [franchiseId], references: [id])
+  franchiseId String?
+
+  assignedAgent  String?
+  assignedAvatar String?
+
+  messages TicketMessage[]
+}
+
+model TicketMessage {
+  id        String   @id @default(uuid())
+  content   String
+  role      String
+  createdAt DateTime @default(now())
+
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId String
+
+  author   User?   @relation(fields: [authorId], references: [id])
+  authorId String?
+}
+
+// ─── Visitas ────────────────────────────────────────────
+
+model VisitRequest {
+  id            String      @id @default(uuid())
+  motivo        String
+  detalle       String
+  urgency       String      @default("media")
+  status        VisitStatus @default(PENDIENTE)
+  scheduledDate DateTime?
+  assignedTo    String?
+  internalNotes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  franchise   Franchise @relation(fields: [franchiseId], references: [id])
+  franchiseId String
+
+  createdBy   User   @relation(fields: [createdById], references: [id])
+  createdById String
+}
+
+// ─── Ono Config ─────────────────────────────────────────
+
+model OnoConfig {
+  id           String   @id @default("singleton")
+  customPrompt String   @default("")
+  updatedAt    DateTime @updatedAt
+}
+
+model ContextFile {
+  id            String   @id @default(uuid())
+  fileName      String
+  size          String
+  extractedText String
+  uploadedAt    DateTime @default(now())
+}
