@@ -201,9 +201,13 @@ model VisitRequest {
 // ─── Ono Config ─────────────────────────────────────────
 
 model OnoConfig {
-  id           String   @id @default("singleton")
-  customPrompt String   @default("")
-  updatedAt    DateTime @updatedAt
+  id               String   @id @default("singleton")
+  customPrompt     String   @default("")
+  quickCategories  String   @default("[]")
+  manualTopics     String   @default("[]")
+  suggestedQueries String   @default("[]")
+  temperatureRef   String   @default("[]")
+  updatedAt        DateTime @updatedAt
 }
 
 model ContextFile {
