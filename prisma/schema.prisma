@@ -60,6 +60,7 @@ model User {
   tickets        Ticket[]
   ticketMessages TicketMessage[]
   visits         VisitRequest[]
+  audits         Audit[]
 }
 
 // ─── Franchises ─────────────────────────────────────────
@@ -93,6 +94,7 @@ model Franchise {
   users   User[]
   tickets Ticket[]
   visits  VisitRequest[]
+  audits  Audit[]
 }
 
 // ─── Manual Operativo ───────────────────────────────────
@@ -196,6 +198,41 @@ model VisitRequest {
 
   createdBy   User   @relation(fields: [createdById], references: [id])
   createdById String
+}
+
+// ─── Auditorías ────────────────────────────────────────
+
+model Audit {
+  id                    String   @id @default(uuid())
+  fecha                 DateTime
+  turno                 String
+  tipoAuditoria         String
+  localNotificado       String
+  cocinaScores          String   @default("{}") // JSON: scores por categoría
+  cajasScores           String   @default("{}") // JSON: scores por categoría
+  cocinaTotal           Float    @default(0)
+  cocinaMax             Float    @default(0)
+  cajasTotal            Float    @default(0)
+  cajasMax              Float    @default(0)
+  cocinaPercent         Float    @default(0)
+  cajasPercent          Float    @default(0)
+  hallazgosCocina       String   @default("")
+  hallazgosCaja         String   @default("")
+  accionesCorrectivas   String   @default("")
+  nivelUrgencia         String   @default("")
+  localObservado        String   @default("")
+  observaciones         String   @default("")
+  firmaResponsable      String   @default("")
+  firmaConsultor        String   @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  franchise   Franchise @relation(fields: [franchiseId], references: [id])
+  franchiseId String
+
+  auditor   User   @relation(fields: [auditorId], references: [id])
+  auditorId String
 }
 
 // ─── Ono Config ─────────────────────────────────────────

@@ -15,6 +15,7 @@ import visitsRoutes from './routes/visits';
 import franchisesRoutes from './routes/franchises';
 import usersRoutes from './routes/users';
 import onoRoutes from './routes/ono';
+import auditsRoutes from './routes/audits';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -35,6 +36,7 @@ app.use('/api/visits', visitsRoutes);
 app.use('/api/franchises', franchisesRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/ono', onoRoutes);
+app.use('/api/audits', auditsRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
