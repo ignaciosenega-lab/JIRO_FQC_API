@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../prisma';
-import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth';
+import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
+
+const requireOpsEditor = requireRole('SUPERADMIN', 'MANAGER', 'OPERACIONES');
 
 const router = Router();
 
@@ -39,7 +41,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
 });
 
 // DELETE /api/categories/:id
-router.delete('/:id', authenticate, requireAdmin, async (req: Request, res: Response) => {
+router.delete('/:id', authenticate, requireOpsEditor, async (req: Request, res: Response) => {
   try {
     await prisma.category.delete({ where: { id: req.params.id } });
     res.json({ success: true });

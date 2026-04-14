@@ -8,8 +8,10 @@ datasource db {
 }
 
 enum Role {
-  ADMIN
-  FRANCHISE
+  SUPERADMIN
+  MANAGER
+  OPERACIONES
+  FRANQUICIA
 }
 
 enum TicketStatus {
@@ -48,7 +50,7 @@ model User {
   email     String   @unique
   password  String
   name      String
-  role      Role     @default(FRANCHISE)
+  role      Role     @default(FRANQUICIA)
   avatar    String?
   active    Boolean  @default(true)
   createdAt DateTime @default(now())

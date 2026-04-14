@@ -2,7 +2,9 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import prisma from '../prisma';
-import { authenticate, requireAdmin } from '../middleware/auth';
+import { authenticate, requireRole } from '../middleware/auth';
+
+const requireOpsEditor = requireRole('SUPERADMIN', 'MANAGER', 'OPERACIONES');
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -27,7 +29,7 @@ router.get('/', authenticate, async (_req: Request, res: Response) => {
 });
 
 // POST /api/manual-pdf
-router.post('/', authenticate, requireAdmin, upload.single('file'), async (req: Request, res: Response) => {
+router.post('/', authenticate, requireOpsEditor, upload.single('file'), async (req: Request, res: Response) => {
   try {
     if (!req.file) {
       res.status(400).json({ error: 'Archivo PDF requerido' });
@@ -49,7 +51,7 @@ router.post('/', authenticate, requireAdmin, upload.single('file'), async (req: 
 });
 
 // DELETE /api/manual-pdf/:id
-router.delete('/:id', authenticate, requireAdmin, async (req: Request, res: Response) => {
+router.delete('/:id', authenticate, requireOpsEditor, async (req: Request, res: Response) => {
   try {
     await prisma.manualPdf.update({ where: { id: req.params.id }, data: { active: false } });
     res.json({ success: true });

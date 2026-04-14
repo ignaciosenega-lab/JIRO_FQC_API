@@ -1,9 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
+export type AppRole = 'SUPERADMIN' | 'MANAGER' | 'OPERACIONES' | 'FRANQUICIA';
+
 export interface AuthRequest extends Request {
   userId?: string;
-  userRole?: string;
+  userRole?: AppRole;
 }
 
 export function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
@@ -14,7 +16,7 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string; role: string };
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string; role: AppRole };
     req.userId = decoded.id;
     req.userRole = decoded.role;
     next();
@@ -23,10 +25,14 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
   }
 }
 
-export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction) {
-  if (req.userRole !== 'ADMIN') {
-    res.status(403).json({ error: 'Acceso denegado: se requiere rol ADMIN' });
-    return;
-  }
-  next();
+export function requireRole(...allowed: AppRole[]) {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.userRole || !allowed.includes(req.userRole)) {
+      res.status(403).json({ error: 'Acceso denegado' });
+      return;
+    }
+    next();
+  };
 }
+
+export const requireSuperadmin = requireRole('SUPERADMIN');

@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../prisma';
-import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth';
+import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
+
+const requireVisitsEditor = requireRole('SUPERADMIN', 'MANAGER', 'OPERACIONES', 'FRANQUICIA');
 
 const router = Router();
 
@@ -8,7 +10,7 @@ const router = Router();
 router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const where: any = {};
-    if (req.userRole === 'FRANCHISE') where.createdById = req.userId;
+    if (req.userRole === 'FRANQUICIA') where.createdById = req.userId;
 
     const visits = await prisma.visitRequest.findMany({
       where,
@@ -40,11 +42,22 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
 });
 
 // PATCH /api/visits/:id
-router.patch('/:id', authenticate, requireAdmin, async (req: Request, res: Response) => {
+router.patch('/:id', authenticate, requireVisitsEditor, async (req: AuthRequest, res: Response) => {
   try {
     const { status, scheduledDate, assignedTo, internalNotes } = req.body;
+    const visitId = req.params.id as string;
+
+    // FRANQUICIA can only edit their own visits
+    if (req.userRole === 'FRANQUICIA') {
+      const existing = await prisma.visitRequest.findUnique({ where: { id: visitId } });
+      if (!existing || existing.createdById !== req.userId) {
+        res.status(403).json({ error: 'Acceso denegado' });
+        return;
+      }
+    }
+
     const visit = await prisma.visitRequest.update({
-      where: { id: req.params.id },
+      where: { id: visitId },
       data: { status, scheduledDate, assignedTo, internalNotes },
     });
     res.json(visit);

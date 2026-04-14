@@ -11,7 +11,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
     const where: any = {};
     if (status && status !== 'all') where.status = status;
     // Franchise users only see their own tickets
-    if (req.userRole === 'FRANCHISE') where.createdById = req.userId;
+    if (req.userRole === 'FRANQUICIA') where.createdById = req.userId;
 
     const tickets = await prisma.ticket.findMany({
       where,

@@ -2,7 +2,9 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import prisma from '../prisma';
-import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth';
+import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
+
+const requireOnoEditor = requireRole('SUPERADMIN', 'MANAGER', 'OPERACIONES');
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -39,7 +41,7 @@ router.get('/config', authenticate, async (_req: Request, res: Response) => {
 });
 
 // PATCH /api/ono/config
-router.patch('/config', authenticate, requireAdmin, async (req: Request, res: Response) => {
+router.patch('/config', authenticate, requireOnoEditor, async (req: Request, res: Response) => {
   try {
     const { customPrompt, quickCategories, manualTopics, suggestedQueries, temperatureRef } = req.body;
     const data: any = {};
@@ -61,7 +63,7 @@ router.patch('/config', authenticate, requireAdmin, async (req: Request, res: Re
 });
 
 // POST /api/ono/context-files
-router.post('/context-files', authenticate, requireAdmin, upload.single('file'), async (req: Request, res: Response) => {
+router.post('/context-files', authenticate, requireOnoEditor, upload.single('file'), async (req: Request, res: Response) => {
   try {
     const { extractedText } = req.body;
     if (!req.file) {
@@ -111,7 +113,7 @@ Solo incluí items claramente respaldados por el documento. Respondé en españo
 });
 
 // DELETE /api/ono/context-files/:id
-router.delete('/context-files/:id', authenticate, requireAdmin, async (req: Request, res: Response) => {
+router.delete('/context-files/:id', authenticate, requireOnoEditor, async (req: Request, res: Response) => {
   try {
     await prisma.contextFile.delete({ where: { id: req.params.id } });
     res.json({ success: true });

@@ -56,34 +56,62 @@ async function main() {
   }
   console.log('✅ Franchises created (16 locations)');
 
-  // Create admin user
+  // Create superadmin user
   const adminPassword = await bcrypt.hash('admin123', 10);
   await prisma.user.upsert({
     where: { email: 'admin@jiro.com' },
-    update: {},
+    update: { role: 'SUPERADMIN' },
     create: {
       email: 'admin@jiro.com',
       password: adminPassword,
       name: 'JIRO Admin',
-      role: 'ADMIN',
+      role: 'SUPERADMIN',
     },
   });
-  console.log('✅ Admin user created (admin@jiro.com / admin123)');
+  console.log('✅ Superadmin user created (admin@jiro.com / admin123)');
 
-  // Create franchise user
+  // Create franquicia user
   const franchisePassword = await bcrypt.hash('franchise123', 10);
   await prisma.user.upsert({
     where: { email: 'palermo@jiro.com' },
-    update: {},
+    update: { role: 'FRANQUICIA' },
     create: {
       email: 'palermo@jiro.com',
       password: franchisePassword,
       name: 'Gerente Palermo',
-      role: 'FRANCHISE',
+      role: 'FRANQUICIA',
       franchiseId: 'F-001',
     },
   });
-  console.log('✅ Franchise user created (palermo@jiro.com / franchise123)');
+  console.log('✅ Franquicia user created (palermo@jiro.com / franchise123)');
+
+  // Create manager demo user
+  const managerPassword = await bcrypt.hash('manager123', 10);
+  await prisma.user.upsert({
+    where: { email: 'manager@jiro.com' },
+    update: { role: 'MANAGER' },
+    create: {
+      email: 'manager@jiro.com',
+      password: managerPassword,
+      name: 'Manager Demo',
+      role: 'MANAGER',
+    },
+  });
+  console.log('✅ Manager user created (manager@jiro.com / manager123)');
+
+  // Create operaciones demo user
+  const opsPassword = await bcrypt.hash('ops123', 10);
+  await prisma.user.upsert({
+    where: { email: 'ops@jiro.com' },
+    update: { role: 'OPERACIONES' },
+    create: {
+      email: 'ops@jiro.com',
+      password: opsPassword,
+      name: 'Operaciones Demo',
+      role: 'OPERACIONES',
+    },
+  });
+  console.log('✅ Operaciones user created (ops@jiro.com / ops123)');
 
   // Create Ono config
   await prisma.onoConfig.upsert({

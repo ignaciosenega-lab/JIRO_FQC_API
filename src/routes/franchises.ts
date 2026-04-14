@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../prisma';
-import { authenticate, requireAdmin, AuthRequest } from '../middleware/auth';
+import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
+
+const requireFranchiseEditor = requireRole('SUPERADMIN', 'MANAGER');
 
 const router = Router();
 
@@ -34,7 +36,7 @@ router.get('/stats', authenticate, async (_req: Request, res: Response) => {
 });
 
 // POST /api/franchises
-router.post('/', authenticate, requireAdmin, async (req: Request, res: Response) => {
+router.post('/', authenticate, requireFranchiseEditor, async (req: Request, res: Response) => {
   try {
     const data = req.body;
     if (!data.name?.trim()) {
@@ -49,7 +51,7 @@ router.post('/', authenticate, requireAdmin, async (req: Request, res: Response)
 });
 
 // PATCH /api/franchises/:id
-router.patch('/:id', authenticate, requireAdmin, async (req: Request, res: Response) => {
+router.patch('/:id', authenticate, requireFranchiseEditor, async (req: Request, res: Response) => {
   try {
     const franchise = await prisma.franchise.update({
       where: { id: req.params.id },
@@ -62,7 +64,7 @@ router.patch('/:id', authenticate, requireAdmin, async (req: Request, res: Respo
 });
 
 // DELETE /api/franchises/:id
-router.delete('/:id', authenticate, requireAdmin, async (req: Request, res: Response) => {
+router.delete('/:id', authenticate, requireFranchiseEditor, async (req: Request, res: Response) => {
   try {
     await prisma.franchise.update({ where: { id: req.params.id }, data: { active: false } });
     res.json({ success: true });
