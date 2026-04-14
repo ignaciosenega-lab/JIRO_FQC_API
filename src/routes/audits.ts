@@ -65,8 +65,9 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
     const cocinaPercent = cocinaMax > 0 ? (cocinaTotal / cocinaMax) * 100 : 0;
     const cajasPercent = cajasMax > 0 ? (cajasTotal / cajasMax) * 100 : 0;
 
-    // Weighted score: 40% cocina + 30% cajas + 30% billing (billing not changed here)
-    const auditScore = Math.round(cocinaPercent * 0.57 + cajasPercent * 0.43);
+    // Cocina and cajas are independent. lastAuditScore uses a simple average
+    // so existing views (Dashboard, Units, Score) keep working with a single number.
+    const auditScore = Math.round((cocinaPercent + cajasPercent) / 2);
 
     const audit = await prisma.audit.create({
       data: {

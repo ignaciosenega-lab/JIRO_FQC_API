@@ -237,6 +237,15 @@ model Audit {
   auditorId String
 }
 
+// ─── Audit Config ───────────────────────────────────────
+
+model AuditConfig {
+  id               String   @id @default("singleton")
+  cocinaCategories String   @default("[]")
+  cajasCategories  String   @default("[]")
+  updatedAt        DateTime @updatedAt
+}
+
 // ─── Ono Config ─────────────────────────────────────────
 
 model OnoConfig {

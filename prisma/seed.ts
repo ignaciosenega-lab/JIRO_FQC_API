@@ -121,6 +121,44 @@ async function main() {
   });
   console.log('✅ Ono config created');
 
+  // Create Audit config with default rules (matching the previously hardcoded ones)
+  const defaultCocinaCategories = [
+    { id: 'c01', number: '01', title: 'Presentación', items: [{ name: 'Packaging' }, { name: 'Disposición de piezas' }, { name: 'Decoración' }] },
+    { id: 'c02', number: '02', title: 'Producción', items: [{ name: 'Mise and Place (16-18:45h)' }, { name: 'Previsión de pedidos' }, { name: 'Rótulos' }] },
+    { id: 'c03', number: '03', title: 'Mantenimiento', items: [{ name: 'Luces' }, { name: 'Imagen' }, { name: 'Pintura' }, { name: 'Decoración general' }, { name: 'Marca' }] },
+    { id: 'c04', number: '04', title: 'Recetario', items: [{ name: 'Peso' }, { name: 'Faltante' }, { name: 'Visibilidad' }, { name: 'Cumplimiento' }] },
+    { id: 'c05', number: '05', title: 'Disponibilidad de Elementos', items: [{ name: 'Heladeras' }, { name: 'Freidoras y Anafes' }, { name: 'Cuchillos' }, { name: 'Tablas' }, { name: 'Generales' }] },
+    { id: 'c06', number: '06', title: 'Manipulación', items: [{ name: 'Desechos' }, { name: 'Cadena de frío' }, { name: 'Contaminacion cruzada' }] },
+    { id: 'c07', number: '07', title: 'Comunicación', items: [{ name: 'Difusión de promociones' }, { name: 'Producción ofertada' }, { name: 'Tiempo de comanda' }] },
+    { id: 'c08', number: '08', title: 'Limpieza General de Cocina', items: [{ name: 'Pisos' }, { name: 'Higiene del personal' }, { name: 'General' }] },
+    { id: 'c09', number: '09', title: 'Limpieza', items: [{ name: 'Heladeras limpieza' }, { name: 'Freidoras y Anafes limpieza' }, { name: 'Tablas limpieza' }, { name: 'Generales limpieza' }] },
+    { id: 'c10', number: '10', title: 'Demora en Cocina', items: [{ name: 'Personal' }, { name: 'Mise and Place correcto' }, { name: 'Rendimiento equipo' }, { name: 'Conocimiento de la carta' }] },
+    { id: 'c11', number: '11', title: 'Demora del Servicio', items: [{ name: 'Apps' }, { name: 'Retira' }, { name: 'Tiempo de comanda servicio' }] },
+    { id: 'c12', number: '12', title: 'Compras', items: [{ name: 'Proveedor autorizado' }] },
+  ];
+
+  const defaultCajasCategories = [
+    { id: 'j01', number: '01', title: 'Seguridad', items: [{ name: 'Matafuegos' }, { name: 'Fumigación' }, { name: 'Manipulación de alimentos' }] },
+    { id: 'j02', number: '02', title: 'Atención', items: [{ name: 'Resolución de casos' }, { name: 'Ofrecimiento de productos' }, { name: 'Nivel de servicio' }, { name: 'Agilidad' }] },
+    { id: 'j03', number: '03', title: 'Demora en Caja', items: [{ name: 'Toma de pedidos' }, { name: 'Falta de motos' }, { name: 'Demora de empaquetado' }, { name: 'Respuesta de WhatsApp' }] },
+    { id: 'j04', number: '04', title: 'Difusión', items: [{ name: 'Grupos' }, { name: 'Frecuencia' }] },
+    { id: 'j05', number: '05', title: 'Limpieza', items: [{ name: 'Pisos caja' }, { name: 'Orden' }, { name: 'General caja' }] },
+    { id: 'j06', number: '06', title: 'Uniformes', items: [{ name: 'Uniforme caja' }, { name: 'Uniforme cocina' }] },
+    { id: 'j07', number: '07', title: 'Packaging', items: [{ name: 'Faltantes' }, { name: 'Buena utilización' }] },
+    { id: 'j08', number: '08', title: 'Cierre de Apps', items: [{ name: 'Rappi' }, { name: 'Pedidos Ya' }, { name: 'Mas Delivery' }, { name: 'Pedidos anulados' }, { name: 'Pedidos rechazados' }] },
+  ];
+
+  await prisma.auditConfig.upsert({
+    where: { id: 'singleton' },
+    update: {},
+    create: {
+      id: 'singleton',
+      cocinaCategories: JSON.stringify(defaultCocinaCategories),
+      cajasCategories: JSON.stringify(defaultCajasCategories),
+    },
+  });
+  console.log('✅ Audit config created');
+
   console.log('\n🎉 Seed complete!');
 }
 
