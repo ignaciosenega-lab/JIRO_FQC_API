@@ -65,9 +65,15 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
     const cocinaPercent = cocinaMax > 0 ? (cocinaTotal / cocinaMax) * 100 : 0;
     const cajasPercent = cajasMax > 0 ? (cajasTotal / cajasMax) * 100 : 0;
 
-    // Cocina and cajas are independent. lastAuditScore uses a simple average
-    // so existing views (Dashboard, Units, Score) keep working with a single number.
-    const auditScore = Math.round((cocinaPercent + cajasPercent) / 2);
+    // A section with max === 0 was not audited (e.g. "Solo Cocina" skips cajas).
+    // lastAuditScore ignores missing sections so partial audits aren't penalised.
+    const hasCocina = cocinaMax > 0;
+    const hasCajas = cajasMax > 0;
+    let auditScore: number;
+    if (hasCocina && hasCajas) auditScore = Math.round((cocinaPercent + cajasPercent) / 2);
+    else if (hasCocina) auditScore = Math.round(cocinaPercent);
+    else if (hasCajas) auditScore = Math.round(cajasPercent);
+    else auditScore = 0;
 
     const audit = await prisma.audit.create({
       data: {
