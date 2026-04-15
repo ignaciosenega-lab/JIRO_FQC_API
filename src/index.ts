@@ -17,6 +17,7 @@ import usersRoutes from './routes/users';
 import onoRoutes from './routes/ono';
 import auditsRoutes from './routes/audits';
 import auditsConfigRoutes from './routes/auditsConfig';
+import rolePermissionsRoutes from './routes/rolePermissions';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -39,6 +40,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/ono', onoRoutes);
 app.use('/api/audits', auditsRoutes);
 app.use('/api/audits-config', auditsConfigRoutes);
+app.use('/api/role-permissions', rolePermissionsRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {

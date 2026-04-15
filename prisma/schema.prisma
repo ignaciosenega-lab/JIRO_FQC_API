@@ -237,6 +237,14 @@ model Audit {
   auditorId String
 }
 
+// ─── Role Permissions Config ────────────────────────────
+
+model RolePermissionsConfig {
+  id          String   @id @default("singleton")
+  permissions String   @default("{}")
+  updatedAt   DateTime @updatedAt
+}
+
 // ─── Audit Config ───────────────────────────────────────
 
 model AuditConfig {

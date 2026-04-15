@@ -159,6 +159,36 @@ async function main() {
   });
   console.log('✅ Audit config created');
 
+  // Role permissions default matrix (editable from the UI by superadmin)
+  const defaultRolePermissions = {
+    SUPERADMIN: {
+      dashboard: 'edit', ai: 'edit', ops: 'edit', compliance: 'edit',
+      score: 'edit', visits: 'edit', units: 'edit', users: 'edit',
+    },
+    MANAGER: {
+      dashboard: 'edit', ai: 'edit', ops: 'edit', compliance: 'edit',
+      score: 'edit', visits: 'edit', units: 'edit', users: 'none',
+    },
+    OPERACIONES: {
+      dashboard: 'view', ai: 'edit', ops: 'edit', compliance: 'view',
+      score: 'view', visits: 'edit', units: 'view', users: 'none',
+    },
+    FRANQUICIA: {
+      dashboard: 'view', ai: 'none', ops: 'none', compliance: 'edit',
+      score: 'view', visits: 'edit', units: 'view', users: 'none',
+    },
+  };
+
+  await prisma.rolePermissionsConfig.upsert({
+    where: { id: 'singleton' },
+    update: {},
+    create: {
+      id: 'singleton',
+      permissions: JSON.stringify(defaultRolePermissions),
+    },
+  });
+  console.log('✅ Role permissions config created');
+
   console.log('\n🎉 Seed complete!');
 }
 
