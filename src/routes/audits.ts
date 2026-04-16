@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import prisma from '../prisma';
-import { authenticate, AuthRequest } from '../middleware/auth';
+import { authenticate, requireSuperadmin, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
@@ -116,6 +116,21 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
   } catch (err) {
     console.error('Error creating audit:', err);
     res.status(500).json({ error: 'Error al crear auditoría' });
+  }
+});
+
+// DELETE /api/audits/:id — superadmin only
+router.delete('/:id', authenticate, requireSuperadmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const audit = await prisma.audit.findUnique({ where: { id: req.params.id } });
+    if (!audit) {
+      res.status(404).json({ error: 'Auditoría no encontrada' });
+      return;
+    }
+    await prisma.audit.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al eliminar auditoría' });
   }
 });
 
