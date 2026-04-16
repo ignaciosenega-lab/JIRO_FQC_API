@@ -75,10 +75,11 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
     else if (hasCajas) auditScore = Math.round(cajasPercent);
     else auditScore = 0;
 
+    const auditDate = new Date(fecha);
     const audit = await prisma.audit.create({
       data: {
         franchiseId,
-        fecha: new Date(fecha),
+        fecha: auditDate,
         turno,
         tipoAuditoria,
         localNotificado: localNotificado || '',
@@ -110,6 +111,25 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
     await prisma.franchise.update({
       where: { id: franchiseId },
       data: { lastAuditScore: auditScore },
+    });
+
+    // Auto-create a completed visit linked to this audit
+    const tipoLabel =
+      tipoAuditoria === 'completa' ? 'Completa (Cocina + Cajas)' :
+      tipoAuditoria === 'solo_cocina' ? 'Solo Cocina' :
+      tipoAuditoria === 'solo_caja' ? 'Solo Cajas' :
+      tipoAuditoria === 'seguimiento' ? 'Seguimiento' : tipoAuditoria;
+
+    await prisma.visitRequest.create({
+      data: {
+        motivo: `Auditoría ${tipoLabel}`,
+        detalle: `Auditoría realizada. Score: Cocina ${cocinaMax > 0 ? Math.round(cocinaPercent) + '%' : '—'}, Cajas ${cajasMax > 0 ? Math.round(cajasPercent) + '%' : '—'}.`,
+        urgency: 'media',
+        status: 'COMPLETADA',
+        scheduledDate: auditDate,
+        franchiseId,
+        createdById: req.userId!,
+      },
     });
 
     res.status(201).json(audit);
