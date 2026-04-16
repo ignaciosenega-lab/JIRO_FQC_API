@@ -139,6 +139,29 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
   }
 });
 
+// PATCH /api/audits/:id/corrective-status — update checklist state
+router.patch('/:id/corrective-status', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { status } = req.body;
+    if (!status || typeof status !== 'object') {
+      res.status(400).json({ error: 'Se requiere un objeto status' });
+      return;
+    }
+    const audit = await prisma.audit.findUnique({ where: { id: req.params.id } });
+    if (!audit) {
+      res.status(404).json({ error: 'Auditoría no encontrada' });
+      return;
+    }
+    const updated = await prisma.audit.update({
+      where: { id: req.params.id },
+      data: { accionesCorrectivasStatus: JSON.stringify(status) },
+    });
+    res.json({ accionesCorrectivasStatus: JSON.parse(updated.accionesCorrectivasStatus) });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al actualizar estado de acciones correctivas' });
+  }
+});
+
 // DELETE /api/audits/:id — superadmin only
 router.delete('/:id', authenticate, requireSuperadmin, async (req: AuthRequest, res: Response) => {
   try {
