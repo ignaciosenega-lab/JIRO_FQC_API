@@ -222,6 +222,7 @@ model Audit {
   hallazgosCaja         String   @default("")
   accionesCorrectivas       String   @default("")
   accionesCorrectivasStatus String   @default("{}")
+  accionesCorrectivasFechaVencimiento DateTime?
   nivelUrgencia         String   @default("")
   localObservado        String   @default("")
   observaciones         String   @default("")

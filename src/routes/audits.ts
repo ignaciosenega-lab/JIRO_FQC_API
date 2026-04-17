@@ -53,7 +53,8 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
       cocinaScores, cajasScores,
       cocinaTotal, cocinaMax, cajasTotal, cajasMax,
       hallazgosCocina, hallazgosCaja,
-      accionesCorrectivas, nivelUrgencia, localObservado, observaciones,
+      accionesCorrectivas, accionesCorrectivasFechaVencimiento,
+      nivelUrgencia, localObservado, observaciones,
       firmaResponsable, firmaConsultor,
     } = req.body;
 
@@ -94,6 +95,7 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
         hallazgosCocina: hallazgosCocina || '',
         hallazgosCaja: hallazgosCaja || '',
         accionesCorrectivas: accionesCorrectivas || '',
+        accionesCorrectivasFechaVencimiento: accionesCorrectivasFechaVencimiento ? new Date(accionesCorrectivasFechaVencimiento) : null,
         nivelUrgencia: nivelUrgencia || '',
         localObservado: localObservado || '',
         observaciones: observaciones || '',
