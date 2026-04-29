@@ -97,6 +97,53 @@ model Franchise {
   tickets Ticket[]
   visits  VisitRequest[]
   audits  Audit[]
+  billing BillingData[]
+
+  zone   Zone?   @relation(fields: [zoneId], references: [id])
+  zoneId String?
+}
+
+// ─── Expansión / Análisis de Zonas ──────────────────────
+
+model Zone {
+  id                  String  @id @default(uuid())
+  nombre              String
+  provincia           String  @default("")
+  partidoComuna       String  @default("")
+  barrio              String  @default("")
+  poblacion           Int     @default(0)
+  densidadHabKm2      Float   @default(0)
+  ingresoPromedio     Float   @default(0)
+  edadMediana         Float   @default(0)
+  nivelSocioeconomico String  @default("")
+  oficinasCercanas    Int     @default(0)
+  competenciaSushi    Int     @default(0)
+  notas               String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  franchises Franchise[]
+
+  @@unique([provincia, partidoComuna, barrio, nombre])
+}
+
+model BillingData {
+  id              String   @id @default(uuid())
+  periodo         String
+  ventasBrutas    Float    @default(0)
+  transacciones   Int      @default(0)
+  ticketPromedio  Float    @default(0)
+  notas           String   @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  franchise   Franchise @relation(fields: [franchiseId], references: [id], onDelete: Cascade)
+  franchiseId String
+
+  @@unique([franchiseId, periodo])
+  @@index([franchiseId])
 }
 
 // ─── Manual Operativo ───────────────────────────────────

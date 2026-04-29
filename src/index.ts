@@ -18,6 +18,8 @@ import onoRoutes from './routes/ono';
 import auditsRoutes from './routes/audits';
 import auditsConfigRoutes from './routes/auditsConfig';
 import rolePermissionsRoutes from './routes/rolePermissions';
+import zonesRoutes from './routes/zones';
+import billingRoutes from './routes/billing';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -41,6 +43,8 @@ app.use('/api/ono', onoRoutes);
 app.use('/api/audits', auditsRoutes);
 app.use('/api/audits-config', auditsConfigRoutes);
 app.use('/api/role-permissions', rolePermissionsRoutes);
+app.use('/api/zones', zonesRoutes);
+app.use('/api/billing', billingRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
