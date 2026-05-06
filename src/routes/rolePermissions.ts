@@ -5,7 +5,7 @@ import { authenticate, requireSuperadmin, AuthRequest, AppRole } from '../middle
 const router = Router();
 
 const VALID_ROLES: AppRole[] = ['SUPERADMIN', 'MANAGER', 'OPERACIONES', 'FRANQUICIA'];
-const VALID_VIEWS = ['dashboard', 'ai', 'ops', 'compliance', 'score', 'visits', 'units', 'expansion', 'users'];
+const VALID_VIEWS = ['dashboard', 'ai', 'ops', 'compliance', 'score', 'visits', 'units', 'expansion', 'royalties', 'users'];
 const VALID_LEVELS = ['none', 'view', 'edit'];
 
 const FULL_SUPERADMIN = VALID_VIEWS.reduce(

@@ -93,11 +93,13 @@ model Franchise {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users   User[]
-  tickets Ticket[]
-  visits  VisitRequest[]
-  audits  Audit[]
-  billing BillingData[]
+  users     User[]
+  tickets   Ticket[]
+  visits    VisitRequest[]
+  audits    Audit[]
+  billing   BillingData[]
+  royalties Royalty[]
+  ads       AdIncome[]
 
   zone   Zone?   @relation(fields: [zoneId], references: [id])
   zoneId String?
@@ -134,6 +136,44 @@ model BillingData {
   ventasBrutas    Float    @default(0)
   transacciones   Int      @default(0)
   ticketPromedio  Float    @default(0)
+  notas           String   @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  franchise   Franchise @relation(fields: [franchiseId], references: [id], onDelete: Cascade)
+  franchiseId String
+
+  @@unique([franchiseId, periodo])
+  @@index([franchiseId])
+}
+
+model Royalty {
+  id              String   @id @default(uuid())
+  periodo         String
+  monto           Float    @default(0)
+  baseFacturacion Float    @default(0)
+  porcentaje      Float    @default(0)
+  estado          String   @default("pendiente")
+  notas           String   @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  franchise   Franchise @relation(fields: [franchiseId], references: [id], onDelete: Cascade)
+  franchiseId String
+
+  @@unique([franchiseId, periodo])
+  @@index([franchiseId])
+}
+
+model AdIncome {
+  id              String   @id @default(uuid())
+  periodo         String
+  monto           Float    @default(0)
+  baseFacturacion Float    @default(0)
+  porcentaje      Float    @default(0)
+  estado          String   @default("pendiente")
   notas           String   @default("")
 
   createdAt DateTime @default(now())

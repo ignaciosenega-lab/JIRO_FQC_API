@@ -163,19 +163,19 @@ async function main() {
   const defaultRolePermissions = {
     SUPERADMIN: {
       dashboard: 'edit', ai: 'edit', ops: 'edit', compliance: 'edit',
-      score: 'edit', visits: 'edit', units: 'edit', expansion: 'edit', users: 'edit',
+      score: 'edit', visits: 'edit', units: 'edit', expansion: 'edit', royalties: 'edit', users: 'edit',
     },
     MANAGER: {
       dashboard: 'edit', ai: 'edit', ops: 'edit', compliance: 'edit',
-      score: 'edit', visits: 'edit', units: 'edit', expansion: 'none', users: 'none',
+      score: 'edit', visits: 'edit', units: 'edit', expansion: 'none', royalties: 'none', users: 'none',
     },
     OPERACIONES: {
       dashboard: 'view', ai: 'edit', ops: 'edit', compliance: 'view',
-      score: 'view', visits: 'edit', units: 'view', expansion: 'none', users: 'none',
+      score: 'view', visits: 'edit', units: 'view', expansion: 'none', royalties: 'none', users: 'none',
     },
     FRANQUICIA: {
       dashboard: 'view', ai: 'none', ops: 'none', compliance: 'edit',
-      score: 'view', visits: 'edit', units: 'view', expansion: 'none', users: 'none',
+      score: 'view', visits: 'edit', units: 'view', expansion: 'none', royalties: 'none', users: 'none',
     },
   };
 
