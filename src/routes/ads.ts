@@ -23,7 +23,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 
 router.post('/', authenticate, requireEditor, async (req: Request, res: Response) => {
   try {
-    const { franchiseId, periodo, monto, baseFacturacion, porcentaje, estado, notas } = req.body || {};
+    const { franchiseId, periodo, monto, baseFacturacion, porcentaje, estado, cobro, notas } = req.body || {};
     if (!franchiseId || !periodo) {
       res.status(400).json({ error: 'franchiseId y periodo requeridos' });
       return;
@@ -37,6 +37,7 @@ router.post('/', authenticate, requireEditor, async (req: Request, res: Response
         baseFacturacion: Number(baseFacturacion) || 0,
         porcentaje: Number(porcentaje) || 0,
         estado: estado || 'pendiente',
+        cobro: cobro || 'JIRONOSRL',
         notas: notas || '',
       },
       update: {
@@ -44,6 +45,7 @@ router.post('/', authenticate, requireEditor, async (req: Request, res: Response
         baseFacturacion: Number(baseFacturacion) || 0,
         porcentaje: Number(porcentaje) || 0,
         estado: estado || 'pendiente',
+        cobro: cobro || 'JIRONOSRL',
         notas: notas || '',
       },
     });

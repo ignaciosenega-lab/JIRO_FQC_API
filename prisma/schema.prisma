@@ -155,6 +155,7 @@ model Royalty {
   baseFacturacion Float    @default(0)
   porcentaje      Float    @default(0)
   estado          String   @default("pendiente")
+  cobro           String   @default("JIRONOSRL")
   notas           String   @default("")
 
   createdAt DateTime @default(now())
@@ -174,6 +175,7 @@ model AdIncome {
   baseFacturacion Float    @default(0)
   porcentaje      Float    @default(0)
   estado          String   @default("pendiente")
+  cobro           String   @default("JIRONOSRL")
   notas           String   @default("")
 
   createdAt DateTime @default(now())
