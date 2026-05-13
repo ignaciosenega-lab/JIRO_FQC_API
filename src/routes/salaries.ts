@@ -23,28 +23,34 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 
 router.post('/', authenticate, requireEditor, async (req: Request, res: Response) => {
   try {
-    const { employeeId, periodo, blancoAmount, negroAmount, presentismoAmount, presentismoPaidBy, pagado, notas } = req.body || {};
+    const { employeeId, periodo, blancoAmount, blancoPaidBy, negroAmount, negroPaidBy, presentismoAmount, presentismoPaidBy, pagado, notas } = req.body || {};
     if (!employeeId || !periodo) {
       res.status(400).json({ error: 'employeeId y periodo requeridos' });
       return;
     }
+    const normPaidBy = (v: any, def: 'nacho' | 'lean'): 'nacho' | 'lean' =>
+      v === 'lean' ? 'lean' : v === 'nacho' ? 'nacho' : def;
     const created = await prisma.salary.upsert({
       where: { employeeId_periodo: { employeeId, periodo } },
       create: {
         employeeId,
         periodo,
         blancoAmount: Number(blancoAmount) || 0,
+        blancoPaidBy: normPaidBy(blancoPaidBy, 'lean'),
         negroAmount: Number(negroAmount) || 0,
+        negroPaidBy: normPaidBy(negroPaidBy, 'nacho'),
         presentismoAmount: Number(presentismoAmount) || 0,
-        presentismoPaidBy: presentismoPaidBy === 'lean' ? 'lean' : 'nacho',
+        presentismoPaidBy: normPaidBy(presentismoPaidBy, 'nacho'),
         pagado: !!pagado,
         notas: notas || '',
       },
       update: {
         blancoAmount: Number(blancoAmount) || 0,
+        blancoPaidBy: normPaidBy(blancoPaidBy, 'lean'),
         negroAmount: Number(negroAmount) || 0,
+        negroPaidBy: normPaidBy(negroPaidBy, 'nacho'),
         presentismoAmount: Number(presentismoAmount) || 0,
-        presentismoPaidBy: presentismoPaidBy === 'lean' ? 'lean' : 'nacho',
+        presentismoPaidBy: normPaidBy(presentismoPaidBy, 'nacho'),
         pagado: !!pagado,
         notas: notas || '',
       },

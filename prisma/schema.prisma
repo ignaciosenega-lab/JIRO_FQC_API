@@ -204,7 +204,9 @@ model Salary {
   id                String   @id @default(uuid())
   periodo           String
   blancoAmount      Float    @default(0)
+  blancoPaidBy      String   @default("lean")
   negroAmount       Float    @default(0)
+  negroPaidBy       String   @default("nacho")
   presentismoAmount Float    @default(0)
   presentismoPaidBy String   @default("nacho")
   pagado            Boolean  @default(false)
