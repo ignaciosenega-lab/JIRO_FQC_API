@@ -188,6 +188,54 @@ model AdIncome {
   @@index([franchiseId])
 }
 
+// ─── Finanzas: Empleados, Sueldos, Otros Gastos ─────────
+
+model Employee {
+  id        String   @id @default(uuid())
+  nombre    String
+  activo    Boolean  @default(true)
+  notas     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  salaries  Salary[]
+}
+
+model Salary {
+  id                String   @id @default(uuid())
+  periodo           String
+  blancoAmount      Float    @default(0)
+  negroAmount       Float    @default(0)
+  presentismoAmount Float    @default(0)
+  presentismoPaidBy String   @default("nacho")
+  pagado            Boolean  @default(false)
+  notas             String   @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId String
+
+  @@unique([employeeId, periodo])
+  @@index([employeeId])
+  @@index([periodo])
+}
+
+model OtherExpense {
+  id          String   @id @default(uuid())
+  periodo     String
+  descripcion String
+  monto       Float    @default(0)
+  paidBy      String   @default("nacho")
+  pagado      Boolean  @default(false)
+  notas       String   @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([periodo])
+}
+
 // ─── Manual Operativo ───────────────────────────────────
 
 model Category {

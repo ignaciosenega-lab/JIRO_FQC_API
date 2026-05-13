@@ -22,6 +22,9 @@ import zonesRoutes from './routes/zones';
 import billingRoutes from './routes/billing';
 import royaltiesRoutes from './routes/royalties';
 import adsRoutes from './routes/ads';
+import employeesRoutes from './routes/employees';
+import salariesRoutes from './routes/salaries';
+import otherExpensesRoutes from './routes/otherExpenses';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -49,6 +52,9 @@ app.use('/api/zones', zonesRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/royalties', royaltiesRoutes);
 app.use('/api/ads', adsRoutes);
+app.use('/api/employees', employeesRoutes);
+app.use('/api/salaries', salariesRoutes);
+app.use('/api/other-expenses', otherExpensesRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
