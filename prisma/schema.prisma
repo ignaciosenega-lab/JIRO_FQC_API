@@ -224,13 +224,14 @@ model Salary {
 }
 
 model OtherExpense {
-  id          String   @id @default(uuid())
-  periodo     String
-  descripcion String
-  monto       Float    @default(0)
-  paidBy      String   @default("nacho")
-  pagado      Boolean  @default(false)
-  notas       String   @default("")
+  id           String   @id @default(uuid())
+  periodo      String
+  descripcion  String
+  monto        Float    @default(0)
+  paidBy       String   @default("nacho")
+  esPublicidad Boolean  @default(false)
+  pagado       Boolean  @default(false)
+  notas        String   @default("")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -22,7 +22,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 
 router.post('/', authenticate, requireEditor, async (req: Request, res: Response) => {
   try {
-    const { periodo, descripcion, monto, paidBy, pagado, notas } = req.body || {};
+    const { periodo, descripcion, monto, paidBy, esPublicidad, pagado, notas } = req.body || {};
     if (!periodo || !descripcion?.trim()) {
       res.status(400).json({ error: 'periodo y descripcion requeridos' });
       return;
@@ -33,6 +33,7 @@ router.post('/', authenticate, requireEditor, async (req: Request, res: Response
         descripcion: descripcion.trim(),
         monto: Number(monto) || 0,
         paidBy: paidBy === 'lean' ? 'lean' : 'nacho',
+        esPublicidad: !!esPublicidad,
         pagado: !!pagado,
         notas: notas || '',
       },
