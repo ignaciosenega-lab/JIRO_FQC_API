@@ -25,6 +25,7 @@ import adsRoutes from './routes/ads';
 import employeesRoutes from './routes/employees';
 import salariesRoutes from './routes/salaries';
 import otherExpensesRoutes from './routes/otherExpenses';
+import marketingRoutes from './routes/marketing';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -55,6 +56,7 @@ app.use('/api/ads', adsRoutes);
 app.use('/api/employees', employeesRoutes);
 app.use('/api/salaries', salariesRoutes);
 app.use('/api/other-expenses', otherExpensesRoutes);
+app.use('/api/marketing', marketingRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
