@@ -59,12 +59,41 @@ router.post('/menu-fetch', authenticate, requireEditor, async (req: Request, res
     // Detección heurística: si el cleaned tiene muy poco texto, probablemente es un SPA
     const looksLikeSpa = cleaned.length < 500;
 
+    // Si es SPA, intentamos el fallback automático: ${origin}/api/menu
+    if (looksLikeSpa) {
+      const apiCandidates = [`${parsed.origin}/api/menu`, `${parsed.origin}/api/products`];
+      for (const apiUrl of apiCandidates) {
+        try {
+          const apiResp = await fetch(apiUrl, {
+            headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (compatible; JIRO-MenuReview/1.0)' },
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!apiResp.ok) continue;
+          const ct = apiResp.headers.get('content-type') || '';
+          if (!ct.includes('application/json')) continue;
+          const json = await apiResp.json();
+          const jsonText = JSON.stringify(json, null, 2);
+          res.json({
+            ok: true,
+            url,
+            text: jsonText.slice(0, 50000),
+            length: jsonText.length,
+            looksLikeSpa: false,
+            source: 'api',
+            apiUrl,
+          });
+          return;
+        } catch { /* try next candidate */ }
+      }
+    }
+
     res.json({
       ok: true,
       url,
       text: cleaned.slice(0, 50000),
       length: cleaned.length,
       looksLikeSpa,
+      source: 'html',
     });
   } catch (e: any) {
     if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
