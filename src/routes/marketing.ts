@@ -59,9 +59,15 @@ router.post('/menu-fetch', authenticate, requireEditor, async (req: Request, res
     // Detección heurística: si el cleaned tiene muy poco texto, probablemente es un SPA
     const looksLikeSpa = cleaned.length < 500;
 
-    // Si es SPA, intentamos el fallback automático: ${origin}/api/menu
+    // Si es SPA, intentamos el fallback automático probando endpoints conocidos.
+    // Orden: probamos primero los más específicos (los que ya conocemos que existen) y vamos cayendo a genéricos.
     if (looksLikeSpa) {
-      const apiCandidates = [`${parsed.origin}/api/menu`, `${parsed.origin}/api/products`];
+      const apiCandidates = [
+        `${parsed.origin}/api/public/menu`,    // ← el que deployaste vos
+        `${parsed.origin}/api/menu`,
+        `${parsed.origin}/api/public/products`,
+        `${parsed.origin}/api/products`,
+      ];
       for (const apiUrl of apiCandidates) {
         try {
           const apiResp = await fetch(apiUrl, {
