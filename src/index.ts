@@ -26,6 +26,9 @@ import employeesRoutes from './routes/employees';
 import salariesRoutes from './routes/salaries';
 import otherExpensesRoutes from './routes/otherExpenses';
 import marketingRoutes from './routes/marketing';
+import projectsRoutes from './routes/projects';
+import projectSectionsRoutes from './routes/sections';
+import tasksRoutes from './routes/tasks';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -57,6 +60,9 @@ app.use('/api/employees', employeesRoutes);
 app.use('/api/salaries', salariesRoutes);
 app.use('/api/other-expenses', otherExpensesRoutes);
 app.use('/api/marketing', marketingRoutes);
+app.use('/api/projects', projectsRoutes);
+app.use('/api/sections', projectSectionsRoutes);
+app.use('/api/tasks', tasksRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {

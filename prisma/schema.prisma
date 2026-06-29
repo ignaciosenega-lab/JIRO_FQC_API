@@ -63,6 +63,10 @@ model User {
   ticketMessages TicketMessage[]
   visits         VisitRequest[]
   audits         Audit[]
+
+  assignedTasks    Task[]            @relation("TaskAssignee")
+  taskComments     TaskComment[]
+  taskAttachments  TaskAttachment[]
 }
 
 // ─── Franchises ─────────────────────────────────────────
@@ -414,4 +418,112 @@ model ContextFile {
   size          String
   extractedText String
   uploadedAt    DateTime @default(now())
+}
+
+// ─── Projects & Tasks ───────────────────────────────────
+
+enum Priority {
+  NONE
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Project {
+  id          String   @id @default(uuid())
+  name        String
+  description String   @default("")
+  color       String   @default("#888888")
+  archived    Boolean  @default(false)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sections ProjectSection[]
+  tasks    Task[]
+}
+
+model ProjectSection {
+  id        String   @id @default(uuid())
+  name      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+
+  tasks Task[]
+}
+
+model Task {
+  id           String    @id @default(uuid())
+  title        String
+  description  String    @default("")
+  priority     Priority  @default(NONE)
+  done         Boolean   @default(false)
+  startDate    DateTime?
+  dueDate      DateTime?
+  publishDate  DateTime?
+  order        Int       @default(0)
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String
+
+  section   ProjectSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  sectionId String?
+
+  assignee   User?   @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  assigneeId String?
+
+  parentTask   Task?   @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  parentTaskId String?
+  subtasks     Task[]  @relation("TaskSubtasks")
+
+  comments     TaskComment[]
+  attachments  TaskAttachment[]
+  dependencies TaskDependency[] @relation("TaskDependsFrom")
+  dependents   TaskDependency[] @relation("TaskDependsOn")
+}
+
+model TaskComment {
+  id        String   @id @default(uuid())
+  body      String
+  createdAt DateTime @default(now())
+
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId String
+
+  author   User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorId String?
+}
+
+model TaskAttachment {
+  id        String   @id @default(uuid())
+  fileName  String
+  fileUrl   String
+  mime      String?
+  size      Int?
+  createdAt DateTime @default(now())
+
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId String
+
+  uploadedBy   User?   @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploadedById String?
+}
+
+model TaskDependency {
+  id String @id @default(uuid())
+
+  task   Task   @relation("TaskDependsFrom", fields: [taskId], references: [id], onDelete: Cascade)
+  taskId String
+
+  dependsOn   Task   @relation("TaskDependsOn", fields: [dependsOnId], references: [id], onDelete: Cascade)
+  dependsOnId String
+
+  @@unique([taskId, dependsOnId])
 }

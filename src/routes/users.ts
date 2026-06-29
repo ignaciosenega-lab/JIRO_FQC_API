@@ -21,6 +21,20 @@ async function countActiveSuperadmins(excludeId?: string): Promise<number> {
   });
 }
 
+// GET /api/users/lite — autenticado, devuelve lista mínima para selects (assignees)
+router.get('/lite', authenticate, async (_req: AuthRequest, res: Response) => {
+  try {
+    const users = await prisma.user.findMany({
+      where: { active: true },
+      select: { id: true, name: true, avatar: true, role: true },
+      orderBy: { name: 'asc' },
+    });
+    res.json(users);
+  } catch {
+    res.status(500).json({ error: 'Error al obtener usuarios' });
+  }
+});
+
 // GET /api/users
 router.get('/', authenticate, requireSuperadmin, async (_req: AuthRequest, res: Response) => {
   try {
