@@ -527,3 +527,30 @@ model TaskDependency {
 
   @@unique([taskId, dependsOnId])
 }
+
+// ─── Auto (tracker independiente, un solo auto) ─────────
+
+model Auto {
+  id         String   @id @default("singleton")
+  nombre     String   @default("")
+  valorTotal Float    @default(0)
+  notas      String   @default("")
+  updatedAt  DateTime @updatedAt
+
+  cuotas AutoCuota[]
+}
+
+model AutoCuota {
+  id        String   @id @default(uuid())
+  monto     Float    @default(0)
+  fecha     DateTime
+  paidBy    String   @default("nacho")
+  notas     String   @default("")
+  createdAt DateTime @default(now())
+
+  auto   Auto   @relation(fields: [autoId], references: [id], onDelete: Cascade)
+  autoId String @default("singleton")
+
+  @@index([autoId])
+  @@index([fecha])
+}

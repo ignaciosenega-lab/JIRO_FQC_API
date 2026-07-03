@@ -29,6 +29,7 @@ import marketingRoutes from './routes/marketing';
 import projectsRoutes from './routes/projects';
 import projectSectionsRoutes from './routes/sections';
 import tasksRoutes from './routes/tasks';
+import autoRoutes from './routes/auto';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -63,6 +64,7 @@ app.use('/api/marketing', marketingRoutes);
 app.use('/api/projects', projectsRoutes);
 app.use('/api/sections', projectSectionsRoutes);
 app.use('/api/tasks', tasksRoutes);
+app.use('/api/auto', autoRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
