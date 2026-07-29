@@ -554,3 +554,21 @@ model AutoCuota {
   @@index([autoId])
   @@index([fecha])
 }
+
+// ─── Landing Franquicias — Leads ────────────────────────
+
+model FranchiseLead {
+  id        String   @id @default(uuid())
+  nombre    String
+  email     String
+  telefono  String   @default("")
+  ciudad    String   @default("")
+  mensaje   String   @default("")
+  estado    String   @default("nuevo")
+  notas     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([estado])
+  @@index([createdAt])
+}

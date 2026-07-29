@@ -30,13 +30,28 @@ import projectsRoutes from './routes/projects';
 import projectSectionsRoutes from './routes/sections';
 import tasksRoutes from './routes/tasks';
 import autoRoutes from './routes/auto';
+import franchiseLeadsRoutes from './routes/franchiseLeads';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
 // Middleware
 app.use(helmet());
-app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173', credentials: true }));
+// Origins permitidos: FRONTEND_URL (admin), LANDING_URL (landing pública) y localhost dev.
+const allowedOrigins = [
+  process.env.FRONTEND_URL || 'http://localhost:5173',
+  process.env.LANDING_URL,
+  'http://localhost:5173',
+  'http://localhost:5174',
+].filter(Boolean) as string[];
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error(`Origen no permitido: ${origin}`));
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
@@ -65,6 +80,7 @@ app.use('/api/projects', projectsRoutes);
 app.use('/api/sections', projectSectionsRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/auto', autoRoutes);
+app.use('/api/franchise-leads', franchiseLeadsRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
