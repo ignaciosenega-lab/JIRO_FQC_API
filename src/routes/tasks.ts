@@ -99,6 +99,79 @@ router.delete('/:tid', authenticate, requireProjectEditor, async (req: Request, 
   }
 });
 
+// ─── Duplicate ────────────────────────────────────────
+// Clona la tarea + subtareas + attachments (compartiendo fileUrl) en una transacción.
+// No copia comentarios ni dependencias.
+router.post('/:tid/duplicate', authenticate, requireProjectEditor, async (req: Request, res: Response) => {
+  try {
+    const src = await prisma.task.findUnique({
+      where: { id: req.params.tid as string },
+      include: { subtasks: true, attachments: true },
+    });
+    if (!src) {
+      res.status(404).json({ error: 'Tarea no encontrada' });
+      return;
+    }
+    const cloned = await prisma.$transaction(async (tx) => {
+      const max = await tx.task.aggregate({
+        where: { projectId: src.projectId, sectionId: src.sectionId, parentTaskId: null },
+        _max: { order: true },
+      });
+      const root = await tx.task.create({
+        data: {
+          projectId: src.projectId,
+          title: `${src.title} (copia)`,
+          description: src.description,
+          priority: src.priority,
+          done: false,
+          completedAt: null,
+          startDate: src.startDate,
+          dueDate: src.dueDate,
+          publishDate: src.publishDate,
+          sectionId: src.sectionId,
+          assigneeId: src.assigneeId,
+          parentTaskId: src.parentTaskId,
+          order: (max._max.order ?? -1) + 1,
+        },
+      });
+      if (src.attachments.length > 0) {
+        await tx.taskAttachment.createMany({
+          data: src.attachments.map((a) => ({
+            taskId: root.id,
+            fileName: a.fileName,
+            fileUrl: a.fileUrl,
+            mime: a.mime,
+            size: a.size,
+          })),
+        });
+      }
+      for (const sub of src.subtasks) {
+        await tx.task.create({
+          data: {
+            projectId: sub.projectId,
+            title: sub.title,
+            description: sub.description,
+            priority: sub.priority,
+            done: false,
+            completedAt: null,
+            startDate: sub.startDate,
+            dueDate: sub.dueDate,
+            publishDate: sub.publishDate,
+            sectionId: sub.sectionId,
+            assigneeId: sub.assigneeId,
+            parentTaskId: root.id,
+            order: sub.order,
+          },
+        });
+      }
+      return root;
+    });
+    res.status(201).json(cloned);
+  } catch {
+    res.status(500).json({ error: 'Error al duplicar la tarea' });
+  }
+});
+
 // ─── Comments ─────────────────────────────────────────
 
 router.post('/:tid/comments', authenticate, async (req: AuthRequest, res: Response) => {
