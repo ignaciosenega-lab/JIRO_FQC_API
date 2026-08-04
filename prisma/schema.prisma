@@ -566,6 +566,7 @@ model FranchiseLead {
   mensaje   String   @default("")
   estado    String   @default("nuevo")
   notas     String   @default("")
+  origen    String   @default("landing")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

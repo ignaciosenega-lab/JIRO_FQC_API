@@ -4,11 +4,13 @@ import { authenticate, requireRole } from '../middleware/auth';
 
 const router = Router();
 
-// ─── PÚBLICO (landing) ─────────────────────────────────
-// POST /api/franchise-leads  — sin auth, lo llama la landing pública.
+// ─── POST /api/franchise-leads ─────────────────────────
+// Público (landing) o admin (carga manual). El origen se determina así:
+//   - request sin Authorization → landing.
+//   - request con Authorization → default manual, pero se puede overridear en el body.
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { nombre, email, telefono, ciudad, mensaje } = req.body || {};
+    const { nombre, email, telefono, ciudad, mensaje, notas } = req.body || {};
     if (!nombre || typeof nombre !== 'string' || !nombre.trim()) {
       res.status(400).json({ error: 'El nombre es obligatorio' });
       return;
@@ -26,6 +28,16 @@ router.post('/', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'Campos demasiado largos' });
       return;
     }
+    const hasAuth = !!req.headers.authorization;
+    const requested = typeof req.body?.origen === 'string' ? req.body.origen.toLowerCase() : null;
+    const ALLOWED_ORIGINS = ['landing', 'manual'];
+    let origen: string;
+    if (requested && ALLOWED_ORIGINS.includes(requested)) {
+      // Solo respetamos el override si viene desde un cliente autenticado.
+      origen = hasAuth ? requested : 'landing';
+    } else {
+      origen = hasAuth ? 'manual' : 'landing';
+    }
     const lead = await prisma.franchiseLead.create({
       data: {
         nombre: nombre.trim(),
@@ -33,6 +45,8 @@ router.post('/', async (req: Request, res: Response) => {
         telefono: (telefono || '').toString().trim(),
         ciudad: (ciudad || '').toString().trim(),
         mensaje: (mensaje || '').toString().trim(),
+        notas: (notas || '').toString().trim(),
+        origen,
       },
     });
     res.status(201).json({ success: true, id: lead.id });
