@@ -31,6 +31,7 @@ import projectSectionsRoutes from './routes/sections';
 import tasksRoutes from './routes/tasks';
 import autoRoutes from './routes/auto';
 import franchiseLeadsRoutes from './routes/franchiseLeads';
+import aiRoutes from './routes/ai';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -81,6 +82,7 @@ app.use('/api/sections', projectSectionsRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/auto', autoRoutes);
 app.use('/api/franchise-leads', franchiseLeadsRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
