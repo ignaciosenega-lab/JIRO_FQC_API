@@ -62,7 +62,7 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
 // PATCH /api/visits/:id
 router.patch('/:id', authenticate, requireVisitsEditor, async (req: AuthRequest, res: Response) => {
   try {
-    const { status, scheduledDate, endDate, assignedTo, internalNotes } = req.body;
+    const { status, scheduledDate, endDate, assignedTo, internalNotes, motivo, detalle, franchiseId, urgency } = req.body;
     const visitId = req.params.id as string;
 
     // FRANQUICIA can only edit their own visits
@@ -81,10 +81,15 @@ router.patch('/:id', authenticate, requireVisitsEditor, async (req: AuthRequest,
     if (endDate !== undefined) data.endDate = endDate === null ? null : new Date(endDate);
     if (assignedTo !== undefined) data.assignedTo = assignedTo;
     if (internalNotes !== undefined) data.internalNotes = internalNotes;
+    if (typeof motivo === 'string' && motivo.trim()) data.motivo = motivo.trim();
+    if (typeof detalle === 'string' && detalle.trim()) data.detalle = detalle.trim();
+    if (typeof franchiseId === 'string' && franchiseId.trim()) data.franchiseId = franchiseId.trim();
+    if (typeof urgency === 'string' && urgency.trim()) data.urgency = urgency.trim();
 
     const visit = await prisma.visitRequest.update({
       where: { id: visitId },
       data,
+      include: { franchise: true, createdBy: { omit: { password: true } } },
     });
     res.json(visit);
   } catch (err) {
