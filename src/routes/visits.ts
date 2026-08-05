@@ -92,4 +92,23 @@ router.patch('/:id', authenticate, requireVisitsEditor, async (req: AuthRequest,
   }
 });
 
+// DELETE /api/visits/:id
+router.delete('/:id', authenticate, requireVisitsEditor, async (req: AuthRequest, res: Response) => {
+  try {
+    const visitId = req.params.id as string;
+    // FRANQUICIA can only delete their own visits
+    if (req.userRole === 'FRANQUICIA') {
+      const existing = await prisma.visitRequest.findUnique({ where: { id: visitId } });
+      if (!existing || existing.createdById !== req.userId) {
+        res.status(403).json({ error: 'Acceso denegado' });
+        return;
+      }
+    }
+    await prisma.visitRequest.delete({ where: { id: visitId } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al eliminar visita' });
+  }
+});
+
 export default router;
