@@ -333,6 +333,7 @@ model VisitRequest {
   urgency       String      @default("media")
   status        VisitStatus @default(PENDIENTE)
   scheduledDate DateTime?
+  endDate       DateTime?
   assignedTo    String?
   internalNotes String?
 

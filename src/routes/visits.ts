@@ -26,7 +26,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
 // POST /api/visits
 router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { motivo, detalle, urgency, franchiseId, scheduledDate, assignedTo, status } = req.body;
+    const { motivo, detalle, urgency, franchiseId, scheduledDate, endDate, assignedTo, status } = req.body;
     if (!motivo?.trim() || !detalle?.trim() || !franchiseId) {
       res.status(400).json({ error: 'Motivo, detalle y franquicia requeridos' });
       return;
@@ -39,6 +39,14 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
       createdById: req.userId!,
     };
     if (scheduledDate) data.scheduledDate = new Date(scheduledDate);
+    if (endDate) {
+      const end = new Date(endDate);
+      if (scheduledDate && end < new Date(scheduledDate)) {
+        res.status(400).json({ error: 'endDate no puede ser anterior a scheduledDate' });
+        return;
+      }
+      data.endDate = end;
+    }
     if (typeof assignedTo === 'string' && assignedTo.trim()) data.assignedTo = assignedTo.trim();
     if (typeof status === 'string' && status.trim()) data.status = status.trim();
     const visit = await prisma.visitRequest.create({
@@ -54,7 +62,7 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
 // PATCH /api/visits/:id
 router.patch('/:id', authenticate, requireVisitsEditor, async (req: AuthRequest, res: Response) => {
   try {
-    const { status, scheduledDate, assignedTo, internalNotes } = req.body;
+    const { status, scheduledDate, endDate, assignedTo, internalNotes } = req.body;
     const visitId = req.params.id as string;
 
     // FRANQUICIA can only edit their own visits
@@ -66,9 +74,17 @@ router.patch('/:id', authenticate, requireVisitsEditor, async (req: AuthRequest,
       }
     }
 
+    // Solo mandamos los campos que efectivamente llegaron para no pisar con undefined.
+    const data: Record<string, unknown> = {};
+    if (status !== undefined) data.status = status;
+    if (scheduledDate !== undefined) data.scheduledDate = scheduledDate === null ? null : new Date(scheduledDate);
+    if (endDate !== undefined) data.endDate = endDate === null ? null : new Date(endDate);
+    if (assignedTo !== undefined) data.assignedTo = assignedTo;
+    if (internalNotes !== undefined) data.internalNotes = internalNotes;
+
     const visit = await prisma.visitRequest.update({
       where: { id: visitId },
-      data: { status, scheduledDate, assignedTo, internalNotes },
+      data,
     });
     res.json(visit);
   } catch (err) {
