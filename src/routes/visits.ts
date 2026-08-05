@@ -26,13 +26,23 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
 // POST /api/visits
 router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { motivo, detalle, urgency, franchiseId } = req.body;
+    const { motivo, detalle, urgency, franchiseId, scheduledDate, assignedTo, status } = req.body;
     if (!motivo?.trim() || !detalle?.trim() || !franchiseId) {
       res.status(400).json({ error: 'Motivo, detalle y franquicia requeridos' });
       return;
     }
+    const data: Record<string, unknown> = {
+      motivo,
+      detalle,
+      urgency: urgency || 'media',
+      franchiseId,
+      createdById: req.userId!,
+    };
+    if (scheduledDate) data.scheduledDate = new Date(scheduledDate);
+    if (typeof assignedTo === 'string' && assignedTo.trim()) data.assignedTo = assignedTo.trim();
+    if (typeof status === 'string' && status.trim()) data.status = status.trim();
     const visit = await prisma.visitRequest.create({
-      data: { motivo, detalle, urgency: urgency || 'media', franchiseId, createdById: req.userId! },
+      data: data as any,
       include: { franchise: true },
     });
     res.status(201).json(visit);
