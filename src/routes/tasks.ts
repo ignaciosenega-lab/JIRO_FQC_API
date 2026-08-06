@@ -46,6 +46,31 @@ const taskInclude = {
   _count: { select: { subtasks: true, comments: true, attachments: true } },
 };
 
+// Stream de un adjunto (requiere JWT). Se declara ANTES de '/:tid' para
+// que Express matchee este path literal en vez de tomar "attachments" como :tid.
+router.get('/attachments/:aid/download', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const att = await prisma.taskAttachment.findUnique({ where: { id: req.params.aid as string } });
+    if (!att) {
+      res.status(404).json({ error: 'Adjunto no encontrado' });
+      return;
+    }
+    const rel = att.fileUrl.replace(/^\//, '');
+    const filePath = path.join(__dirname, '..', '..', rel);
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'Archivo no encontrado en el server' });
+      return;
+    }
+    if (att.mime) res.setHeader('Content-Type', att.mime);
+    // inline → el navegador lo abre si sabe (PDF/imagen). Para forzar descarga, el
+    // frontend usa el filename del blob.
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(att.fileName)}"`);
+    fs.createReadStream(filePath).pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: 'Error al servir el archivo' });
+  }
+});
+
 router.get('/:tid', authenticate, async (req: Request, res: Response) => {
   try {
     const task = await prisma.task.findUnique({
