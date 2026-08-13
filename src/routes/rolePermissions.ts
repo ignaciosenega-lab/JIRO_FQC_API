@@ -13,19 +13,26 @@ const FULL_SUPERADMIN = VALID_VIEWS.reduce(
   {} as Record<string, string>
 );
 
-function validateMatrix(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false;
+// Normaliza el matrix entrante: si un rol trae una view desconocida o le falta
+// alguna de VALID_VIEWS, se rellena con 'none'. Así una PATCH desde una app
+// que quedó desactualizada (cache) no cae por "Formato inválido".
+// Devuelve null solo si la estructura raíz está rota (falta un rol o un rol
+// no es objeto).
+function normalizeMatrix(value: unknown): Record<string, Record<string, string>> | null {
+  if (!value || typeof value !== 'object') return null;
   const matrix = value as Record<string, unknown>;
+  const out: Record<string, Record<string, string>> = {};
   for (const role of VALID_ROLES) {
     const perms = matrix[role];
-    if (!perms || typeof perms !== 'object') return false;
+    if (!perms || typeof perms !== 'object') return null;
     const permsObj = perms as Record<string, unknown>;
+    out[role] = {};
     for (const view of VALID_VIEWS) {
       const level = permsObj[view];
-      if (typeof level !== 'string' || !VALID_LEVELS.includes(level)) return false;
+      out[role][view] = (typeof level === 'string' && VALID_LEVELS.includes(level)) ? level : 'none';
     }
   }
-  return true;
+  return out;
 }
 
 // GET /api/role-permissions — any authenticated user (needed to render the UI)
@@ -50,13 +57,14 @@ router.get('/', authenticate, async (_req: AuthRequest, res: Response) => {
 router.patch('/', authenticate, requireSuperadmin, async (req: AuthRequest, res: Response) => {
   try {
     const { permissions } = req.body;
-    if (!validateMatrix(permissions)) {
+    const normalized = normalizeMatrix(permissions);
+    if (!normalized) {
       res.status(400).json({ error: 'Formato inválido de matriz de permisos' });
       return;
     }
 
     // Force SUPERADMIN back to full access regardless of what was sent.
-    const sanitized = { ...permissions, SUPERADMIN: FULL_SUPERADMIN };
+    const sanitized = { ...normalized, SUPERADMIN: FULL_SUPERADMIN };
 
     const config = await prisma.rolePermissionsConfig.upsert({
       where: { id: 'singleton' },
