@@ -46,6 +46,41 @@ const taskInclude = {
   _count: { select: { subtasks: true, comments: true, attachments: true } },
 };
 
+// GET /api/tasks — listado cross-project (para dashboards / "mis tareas").
+// Query params:
+//   - assigneeId: id de usuario (o 'me' → req.userId). Sin este param, admin ve todos.
+//   - done: 'true' | 'false' para filtrar por estado.
+// SUPERADMIN y MANAGER pueden ver de cualquier usuario. Resto solo puede ver
+// los suyos (assigneeId=me se fuerza).
+router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const isAdmin = req.userRole === 'SUPERADMIN' || req.userRole === 'MANAGER';
+    let assigneeId = typeof req.query.assigneeId === 'string' ? req.query.assigneeId : undefined;
+    if (assigneeId === 'me') assigneeId = req.userId!;
+    // Non-admins solo ven sus propias tareas, sin importar lo que pasen.
+    if (!isAdmin) assigneeId = req.userId!;
+
+    const where: Record<string, unknown> = {};
+    if (assigneeId) where.assigneeId = assigneeId;
+    if (req.query.done === 'true') where.done = true;
+    if (req.query.done === 'false') where.done = false;
+
+    const tasks = await prisma.task.findMany({
+      where,
+      include: {
+        assignee: { select: { id: true, name: true, avatar: true, role: true } },
+        project: { select: { id: true, name: true, color: true } },
+        section: { select: { id: true, name: true } },
+        _count: { select: { subtasks: true, comments: true, attachments: true } },
+      },
+      orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
+    });
+    res.json(tasks);
+  } catch (err) {
+    res.status(500).json({ error: 'Error al obtener tareas' });
+  }
+});
+
 // Stream de un adjunto (requiere JWT). Se declara ANTES de '/:tid' para
 // que Express matchee este path literal en vez de tomar "attachments" como :tid.
 router.get('/attachments/:aid/download', authenticate, async (req: AuthRequest, res: Response) => {
