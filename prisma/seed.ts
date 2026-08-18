@@ -163,19 +163,19 @@ async function main() {
   const defaultRolePermissions = {
     SUPERADMIN: {
       dashboard: 'edit', ai: 'edit', ops: 'edit', compliance: 'edit',
-      score: 'edit', visits: 'edit', units: 'edit', expansion: 'edit', royalties: 'edit', marketing: 'edit', projects: 'edit', users: 'edit',
+      score: 'edit', visits: 'edit', units: 'edit', expansion: 'edit', royalties: 'edit', marketing: 'edit', sales: 'edit', projects: 'edit', users: 'edit',
     },
     MANAGER: {
       dashboard: 'edit', ai: 'edit', ops: 'edit', compliance: 'edit',
-      score: 'edit', visits: 'edit', units: 'edit', expansion: 'none', royalties: 'none', marketing: 'none', projects: 'edit', users: 'none',
+      score: 'edit', visits: 'edit', units: 'edit', expansion: 'none', royalties: 'none', marketing: 'none', sales: 'edit', projects: 'edit', users: 'none',
     },
     OPERACIONES: {
       dashboard: 'view', ai: 'edit', ops: 'edit', compliance: 'view',
-      score: 'view', visits: 'edit', units: 'view', expansion: 'none', royalties: 'none', marketing: 'none', projects: 'edit', users: 'none',
+      score: 'view', visits: 'edit', units: 'view', expansion: 'none', royalties: 'none', marketing: 'none', sales: 'view', projects: 'edit', users: 'none',
     },
     FRANQUICIA: {
       dashboard: 'view', ai: 'none', ops: 'none', compliance: 'edit',
-      score: 'view', visits: 'edit', units: 'view', expansion: 'none', royalties: 'none', marketing: 'none', projects: 'none', users: 'none',
+      score: 'view', visits: 'edit', units: 'view', expansion: 'none', royalties: 'none', marketing: 'none', sales: 'none', projects: 'none', users: 'none',
     },
   };
 

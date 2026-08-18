@@ -104,6 +104,7 @@ model Franchise {
   billing   BillingData[]
   royalties Royalty[]
   ads       AdIncome[]
+  salesByChannel SalesByChannel[]
 
   zone   Zone?   @relation(fields: [zoneId], references: [id])
   zoneId String?
@@ -554,6 +555,37 @@ model AutoCuota {
 
   @@index([autoId])
   @@index([fecha])
+}
+
+// ─── Ventas — datos por canal y por día de la semana ────
+// Alimenta el módulo "Ventas" (dashboard). Import inicial desde la planilla
+// "Distribución de venta 2026" + upload manual por CSV.
+
+model SalesByChannel {
+  id          String   @id @default(cuid())
+  franchiseId String
+  franchise   Franchise @relation(fields: [franchiseId], references: [id], onDelete: Cascade)
+  periodo     String   // "YYYY-MM"
+  channel     String   // 'Local' | 'Rappi' | 'Rappi Turbo' | 'Rappi Veggie' | 'Pedidos Ya' | 'Mas delivery' | 'Mercado Pago' | 'Mercado Pago Veggie'
+  orders      Int      @default(0)
+  revenue     Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([franchiseId, periodo, channel])
+  @@index([periodo])
+  @@index([franchiseId])
+}
+
+model SalesWeekday {
+  id        String   @id @default(cuid())
+  periodo   String   // "YYYY-MM"
+  weekday   String   // 'lunes' | 'martes' | ... | 'domingo'
+  orders    Int      @default(0)
+  revenue   Float    @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([periodo, weekday])
 }
 
 // ─── Landing Franquicias — Leads ────────────────────────

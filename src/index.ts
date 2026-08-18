@@ -32,6 +32,7 @@ import tasksRoutes from './routes/tasks';
 import autoRoutes from './routes/auto';
 import franchiseLeadsRoutes from './routes/franchiseLeads';
 import aiRoutes from './routes/ai';
+import salesRoutes from './routes/sales';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -83,6 +84,7 @@ app.use('/api/tasks', tasksRoutes);
 app.use('/api/auto', autoRoutes);
 app.use('/api/franchise-leads', franchiseLeadsRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/sales', salesRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
