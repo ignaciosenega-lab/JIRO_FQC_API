@@ -123,6 +123,13 @@ Los recuadros son para las tres o cuatro ideas que el cliente tiene que recordar
 Nada de "es importante destacar" ni "cabe mencionar"
 Si el hallazgo es incómodo, decilo igual: el valor del informe está en lo que el cliente no quería escuchar
 
+BENCHMARK INTERNO JIRO
+Si el input incluye la sección "## Datos internos JIRO — Red de franquicias", tratala como fuente primaria y de máxima confianza: es data operativa real de nuestros propios locales. Tu tarea:
+- Buscá los 2-3 locales JIRO más análogos a la zona objetivo. Elegí por barrio, ciudad, tipo de zona urbana y perfil socioeconómico. Justificá por qué considerás cada uno análogo.
+- Sumá una sección específica al informe titulada exactamente "## Locales JIRO análogos" con esos locales, sus métricas reales (facturación, pedidos, ticket) y qué esperamos del target por comparación. Ejemplo: "Adrogue factura $21M/mes en un barrio similar; apuntar a $15-25M en Berazategui es razonable según la demanda flotante detectada".
+- Siempre citalos como "dato interno JIRO" (no como URL externa).
+- Si no hay ningún local JIRO análogo (todos los que tenemos están en contextos muy distintos al target), decilo explícito y no forzar la comparación.
+
 FORMATO DE SALIDA
 Devolvé el informe en markdown puro, sin code fences envolventes. Al final incluí una sección "## Fuentes citadas" con la lista de URLs consultadas.`;
 
@@ -134,6 +141,7 @@ export interface MarketAnalysisPromptVars {
   radiusKm?: number;
   rubro?: string;
   inputContext?: string;
+  jiroNetwork?: string | null;
 }
 
 export function buildUserPrompt(v: MarketAnalysisPromptVars): string {
@@ -147,7 +155,10 @@ export function buildUserPrompt(v: MarketAnalysisPromptVars): string {
     parts.push('\n**Contexto adicional aportado por el usuario:**\n');
     parts.push(v.inputContext.trim());
   }
+  if (v.jiroNetwork && v.jiroNetwork.trim()) {
+    parts.push('\n' + v.jiroNetwork.trim());
+  }
   parts.push('\n---\n');
-  parts.push('Ejecutá las 6 fases del sistema y producí el informe con la estructura del entregable. Recordá las reglas innegociables: nada de números inventados; toda cifra con fuente; distinguí dato primario, secundario y supuesto propio; si algo no se puede verificar, decilo explícito.');
+  parts.push('Ejecutá las 6 fases del sistema y producí el informe con la estructura del entregable. Recordá las reglas innegociables: nada de números inventados; toda cifra con fuente; distinguí dato primario, secundario y supuesto propio; si algo no se puede verificar, decilo explícito. Si arriba te pasé datos internos JIRO, sumá la sección "Locales JIRO análogos" al informe usando esos números como benchmark.');
   return parts.join('\n');
 }

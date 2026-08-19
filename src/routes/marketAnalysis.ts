@@ -12,6 +12,84 @@ const requireEditor = requireRole('SUPERADMIN', 'MANAGER', 'OPERACIONES');
 const CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
 const OPENAI_MODEL = 'gpt-4o-mini';
 
+// ── JIRO network context ────────────────────────────────────────
+// Arma un bloque markdown compacto con la red completa de franquicias para
+// que la IA lo use como benchmark interno al analizar zonas nuevas.
+// Devuelve null si no hay datos de ventas todavía.
+async function buildJiroNetworkContext(): Promise<string | null> {
+  // Último período con datos.
+  const latest = await prisma.salesByChannel.findFirst({
+    orderBy: { periodo: 'desc' },
+    select: { periodo: true },
+  });
+  if (!latest) return null;
+  const periodo = latest.periodo;
+
+  const rows = await prisma.salesByChannel.findMany({
+    where: { periodo },
+    include: { franchise: { select: { name: true, barrio: true, city: true, zona: true } } },
+  });
+  if (rows.length === 0) return null;
+
+  // Agregado por franquicia (suma canales).
+  const byFranchise = new Map<string, { name: string; barrio: string; city: string; zona: string; orders: number; revenue: number }>();
+  for (const r of rows) {
+    const key = r.franchiseId;
+    const existing = byFranchise.get(key) || {
+      name: r.franchise.name,
+      barrio: r.franchise.barrio || '',
+      city: r.franchise.city || '',
+      zona: r.franchise.zona || '',
+      orders: 0,
+      revenue: 0,
+    };
+    existing.orders += r.orders;
+    existing.revenue += r.revenue;
+    byFranchise.set(key, existing);
+  }
+  const franchises = Array.from(byFranchise.values()).sort((a, b) => b.revenue - a.revenue);
+
+  // Mix de canales a nivel red.
+  const byChannel = new Map<string, { orders: number; revenue: number }>();
+  let totalRevenue = 0;
+  let totalOrders = 0;
+  for (const r of rows) {
+    const e = byChannel.get(r.channel) || { orders: 0, revenue: 0 };
+    e.orders += r.orders;
+    e.revenue += r.revenue;
+    byChannel.set(r.channel, e);
+    totalRevenue += r.revenue;
+    totalOrders += r.orders;
+  }
+  const channelMix = Array.from(byChannel.entries())
+    .sort((a, b) => b[1].revenue - a[1].revenue)
+    .map(([channel, v]) => `${channel} ${((v.revenue / totalRevenue) * 100).toFixed(0)}%`)
+    .join(' · ');
+
+  const avgTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+  const fmtM = (n: number) => `$${(n / 1_000_000).toFixed(1)}M`;
+  const fmt = (n: number) => `$${Math.round(n).toLocaleString('es-AR')}`;
+
+  const lines: string[] = [];
+  lines.push('## Datos internos JIRO — Red de franquicias');
+  lines.push(`_Fuente primaria. Último mes cerrado: ${periodo}. Usá estos números como benchmark cuantitativo — NO son datos externos, son operativos reales de nuestros locales._`);
+  lines.push('');
+  lines.push(`**Resumen red:** ${franchises.length} locales · ${fmtM(totalRevenue)} facturación total · ${totalOrders.toLocaleString('es-AR')} pedidos · ticket promedio ${fmt(avgTicket)}.`);
+  lines.push('');
+  lines.push(`**Mix de canales:** ${channelMix}.`);
+  lines.push('');
+  lines.push('**Ranking de locales por facturación mensual:**');
+  lines.push('');
+  lines.push('| # | Local | Zona | Facturación | Pedidos | Ticket |');
+  lines.push('|---|-------|------|-------------|---------|--------|');
+  franchises.forEach((f, i) => {
+    const zona = [f.barrio, f.city, f.zona].filter(Boolean).join(' · ') || '—';
+    const ticket = f.orders > 0 ? f.revenue / f.orders : 0;
+    lines.push(`| ${i + 1} | ${f.name.replace(/\|/g, '')} | ${zona.replace(/\|/g, '')} | ${fmt(f.revenue)} | ${f.orders.toLocaleString('es-AR')} | ${fmt(ticket)} |`);
+  });
+  return lines.join('\n');
+}
+
 async function callClaudeWithSearch(system: string, userPrompt: string): Promise<{ markdown: string; citations: any }> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY no configurada en el server');
@@ -87,6 +165,8 @@ async function callOpenAIWithSearch(system: string, userPrompt: string): Promise
 async function runGeneration(analysisId: string) {
   const a = await prisma.marketAnalysis.findUnique({ where: { id: analysisId } });
   if (!a) return;
+  // Enriquecemos con la red interna si hay datos de ventas. Si no, seguimos igual.
+  const jiroNetwork = await buildJiroNetworkContext().catch(() => null);
   const userPrompt = buildUserPrompt({
     title: a.title,
     address: a.address,
@@ -95,6 +175,7 @@ async function runGeneration(analysisId: string) {
     radiusKm: a.radiusKm,
     rubro: a.rubro,
     inputContext: a.inputContext,
+    jiroNetwork,
   });
 
   try {
