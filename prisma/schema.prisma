@@ -67,6 +67,7 @@ model User {
   assignedTasks    Task[]            @relation("TaskAssignee")
   taskComments     TaskComment[]
   taskAttachments  TaskAttachment[]
+  marketAnalyses   MarketAnalysis[]
 }
 
 // ─── Franchises ─────────────────────────────────────────
@@ -555,6 +556,34 @@ model AutoCuota {
 
   @@index([autoId])
   @@index([fecha])
+}
+
+// ─── Market Analysis Studio (Expansión) ─────────────────
+// Estudios de mercado generados con IA (Claude/OpenAI + web search) que se
+// persisten con su input, output y metadata para poder revisitar.
+
+model MarketAnalysis {
+  id                String   @id @default(cuid())
+  title             String
+  address           String   @default("")
+  lat               Float?
+  lng               Float?
+  radiusKm          Float    @default(4)
+  rubro             String   @default("sushi delivery/takeaway")
+  inputContext      String   @default("") @db.Text  // texto libre pegado por el user
+  model             String   @default("both")       // 'openai' | 'anthropic' | 'both' | 'imported'
+  reportMarkdown    String   @default("") @db.Text  // output principal
+  reportMarkdownAlt String   @default("") @db.Text  // 2do modelo si model='both'
+  citations         Json?
+  status            String   @default("draft")     // 'draft' | 'generating' | 'completed' | 'failed'
+  errorMessage      String   @default("")
+  createdBy         User     @relation(fields: [createdById], references: [id])
+  createdById       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([createdById])
+  @@index([createdAt])
 }
 
 // ─── Ventas — datos por canal y por día de la semana ────
