@@ -9,8 +9,8 @@ const requireEditor = requireRole('SUPERADMIN', 'MANAGER', 'OPERACIONES');
 // ── AI callers ──────────────────────────────────────────────────
 // Cada uno devuelve { markdown, citations } o lanza. Sin fallback silencioso.
 
-const CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
-const OPENAI_MODEL = 'gpt-4o-mini';
+const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
+const OPENAI_MODEL = 'gpt-4o';
 
 // ── JIRO network context ────────────────────────────────────────
 // Arma un bloque markdown compacto con la red completa de franquicias para
@@ -102,9 +102,9 @@ async function callClaudeWithSearch(system: string, userPrompt: string): Promise
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
-      max_tokens: 8000,
+      max_tokens: 16000,
       system,
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 15 }],
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 25 }],
       messages: [{ role: 'user', content: userPrompt }],
     }),
   });
