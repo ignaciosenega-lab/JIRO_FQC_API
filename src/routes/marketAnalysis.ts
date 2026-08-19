@@ -9,8 +9,8 @@ const requireEditor = requireRole('SUPERADMIN', 'MANAGER', 'OPERACIONES');
 // ── AI callers ──────────────────────────────────────────────────
 // Cada uno devuelve { markdown, citations } o lanza. Sin fallback silencioso.
 
-const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
-const OPENAI_MODEL = 'gpt-4o';
+const CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
+const OPENAI_MODEL = 'gpt-4o-mini';
 
 async function callClaudeWithSearch(system: string, userPrompt: string): Promise<{ markdown: string; citations: any }> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
