@@ -1,7 +1,20 @@
 import { Router, Response } from 'express';
+import { Agent } from 'undici';
 import prisma from '../prisma';
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
 import { MARKET_ANALYSIS_SYSTEM_PROMPT, buildUserPrompt } from '../prompts/marketAnalysis';
+
+// Dispatcher custom para llamadas largas a APIs de IA. undici (fetch de Node)
+// tiene un headersTimeout de 5 min por default, que se dispara con Claude o
+// GPT-4o cuando llevan varias web searches antes de devolver el primer byte.
+// Este agent sube esos timeouts a 15 min y matchea con el AbortController.
+const AI_TIMEOUT_MS = 15 * 60 * 1000;
+const longRequestAgent = new Agent({
+  headersTimeout: AI_TIMEOUT_MS,
+  bodyTimeout: AI_TIMEOUT_MS,
+  keepAliveTimeout: 60_000,
+  keepAliveMaxTimeout: 120_000,
+});
 
 const router = Router();
 const requireEditor = requireRole('SUPERADMIN', 'MANAGER', 'OPERACIONES');
@@ -90,16 +103,11 @@ async function buildJiroNetworkContext(): Promise<string | null> {
   return lines.join('\n');
 }
 
-// 15 min de timeout — un análisis con 30+ búsquedas y ~20k tokens de salida
-// puede tardar 5-10 min. Node undici cierra el socket a los ~5 min por default,
-// por eso pasamos AbortController explícito.
-const GENERATION_TIMEOUT_MS = 15 * 60 * 1000;
-
 async function callClaudeWithSearch(system: string, userPrompt: string): Promise<{ markdown: string; citations: any }> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY no configurada en el server');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GENERATION_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
   let resp: Awaited<ReturnType<typeof fetch>>;
   try {
     resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -117,6 +125,8 @@ async function callClaudeWithSearch(system: string, userPrompt: string): Promise
         messages: [{ role: 'user', content: userPrompt }],
       }),
       signal: controller.signal,
+      // @ts-expect-error — dispatcher es opción de undici, no está en el tipo global de fetch
+      dispatcher: longRequestAgent,
     });
   } finally {
     clearTimeout(timer);
@@ -141,7 +151,7 @@ async function callOpenAIWithSearch(system: string, userPrompt: string): Promise
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY no configurada en el server');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GENERATION_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
   let resp: Awaited<ReturnType<typeof fetch>>;
   try {
     resp = await fetch('https://api.openai.com/v1/responses', {
@@ -156,6 +166,8 @@ async function callOpenAIWithSearch(system: string, userPrompt: string): Promise
         tools: [{ type: 'web_search' }],
       }),
       signal: controller.signal,
+      // @ts-expect-error — dispatcher es opción de undici, no está en el tipo global de fetch
+      dispatcher: longRequestAgent,
     });
   } finally {
     clearTimeout(timer);
@@ -190,7 +202,9 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
     return await fn();
   } catch (err: any) {
     const msg = String(err?.message || err || '');
-    const isTransient = msg.includes('fetch failed') || msg.includes('aborted') || msg.includes('ETIMEDOUT') || msg.includes('ECONNRESET') || msg.includes('socket');
+    const cause = (err as any)?.cause;
+    const causeCode = cause?.code || cause?.name || '';
+    const isTransient = msg.includes('fetch failed') || msg.includes('aborted') || msg.includes('ETIMEDOUT') || msg.includes('ECONNRESET') || msg.includes('socket') || causeCode === 'UND_ERR_HEADERS_TIMEOUT' || causeCode === 'UND_ERR_BODY_TIMEOUT' || causeCode === 'UND_ERR_SOCKET';
     if (!isTransient) throw err;
     console.warn(`[market-analysis] ${label} falló con "${msg}" — reintentando 1 vez`);
     return await fn();
