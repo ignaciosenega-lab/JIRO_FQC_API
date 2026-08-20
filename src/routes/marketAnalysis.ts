@@ -102,9 +102,9 @@ async function callClaudeWithSearch(system: string, userPrompt: string): Promise
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
-      max_tokens: 16000,
+      max_tokens: 32000,
       system,
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 25 }],
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 40 }],
       messages: [{ role: 'user', content: userPrompt }],
     }),
   });
