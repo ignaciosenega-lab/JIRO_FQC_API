@@ -90,24 +90,37 @@ async function buildJiroNetworkContext(): Promise<string | null> {
   return lines.join('\n');
 }
 
+// 15 min de timeout — un análisis con 30+ búsquedas y ~20k tokens de salida
+// puede tardar 5-10 min. Node undici cierra el socket a los ~5 min por default,
+// por eso pasamos AbortController explícito.
+const GENERATION_TIMEOUT_MS = 15 * 60 * 1000;
+
 async function callClaudeWithSearch(system: string, userPrompt: string): Promise<{ markdown: string; citations: any }> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY no configurada en el server');
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: 32000,
-      system,
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 40 }],
-      messages: [{ role: 'user', content: userPrompt }],
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GENERATION_TIMEOUT_MS);
+  let resp: Awaited<ReturnType<typeof fetch>>;
+  try {
+    resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 24000,
+        system,
+        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 30 }],
+        messages: [{ role: 'user', content: userPrompt }],
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   const data: any = await resp.json();
   if (!resp.ok) throw new Error(data?.error?.message || `Anthropic error ${resp.status}`);
   // El response Anthropic viene como array de content blocks; concatenar los text blocks.
@@ -127,18 +140,26 @@ async function callClaudeWithSearch(system: string, userPrompt: string): Promise
 async function callOpenAIWithSearch(system: string, userPrompt: string): Promise<{ markdown: string; citations: any }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY no configurada en el server');
-  const resp = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      input: [
-        { role: 'system', content: system },
-        { role: 'user', content: userPrompt },
-      ],
-      tools: [{ type: 'web_search' }],
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GENERATION_TIMEOUT_MS);
+  let resp: Awaited<ReturnType<typeof fetch>>;
+  try {
+    resp = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        input: [
+          { role: 'system', content: system },
+          { role: 'user', content: userPrompt },
+        ],
+        tools: [{ type: 'web_search' }],
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   const data: any = await resp.json();
   if (!resp.ok) throw new Error(data?.error?.message || `OpenAI Responses error ${resp.status}`);
   // Responses API: output_text convenience field o iterar output[].content[].text
@@ -161,6 +182,21 @@ async function callOpenAIWithSearch(system: string, userPrompt: string): Promise
   return { markdown: markdown.trim(), citations };
 }
 
+// Wrapper que reintenta 1 vez cuando el error es un "fetch failed" transitorio
+// (socket cerrado, timeout de red intermedio). No reintentamos si el error es
+// 4xx (credenciales, saldo, request inválido) — eso no lo resuelve un retry.
+async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    const msg = String(err?.message || err || '');
+    const isTransient = msg.includes('fetch failed') || msg.includes('aborted') || msg.includes('ETIMEDOUT') || msg.includes('ECONNRESET') || msg.includes('socket');
+    if (!isTransient) throw err;
+    console.warn(`[market-analysis] ${label} falló con "${msg}" — reintentando 1 vez`);
+    return await fn();
+  }
+}
+
 // Corre la generación en background (no bloqueamos el request).
 async function runGeneration(analysisId: string) {
   const a = await prisma.marketAnalysis.findUnique({ where: { id: analysisId } });
@@ -180,13 +216,13 @@ async function runGeneration(analysisId: string) {
 
   try {
     if (a.model === 'openai') {
-      const r = await callOpenAIWithSearch(MARKET_ANALYSIS_SYSTEM_PROMPT, userPrompt);
+      const r = await withRetry(() => callOpenAIWithSearch(MARKET_ANALYSIS_SYSTEM_PROMPT, userPrompt), 'openai');
       await prisma.marketAnalysis.update({
         where: { id: analysisId },
         data: { status: 'completed', reportMarkdown: r.markdown, citations: r.citations as any },
       });
     } else if (a.model === 'anthropic') {
-      const r = await callClaudeWithSearch(MARKET_ANALYSIS_SYSTEM_PROMPT, userPrompt);
+      const r = await withRetry(() => callClaudeWithSearch(MARKET_ANALYSIS_SYSTEM_PROMPT, userPrompt), 'anthropic');
       await prisma.marketAnalysis.update({
         where: { id: analysisId },
         data: { status: 'completed', reportMarkdown: r.markdown, citations: r.citations as any },
@@ -194,8 +230,8 @@ async function runGeneration(analysisId: string) {
     } else {
       // 'both' — corre los dos en paralelo. Si uno falla, guardamos el que salió.
       const [claudeR, openaiR] = await Promise.allSettled([
-        callClaudeWithSearch(MARKET_ANALYSIS_SYSTEM_PROMPT, userPrompt),
-        callOpenAIWithSearch(MARKET_ANALYSIS_SYSTEM_PROMPT, userPrompt),
+        withRetry(() => callClaudeWithSearch(MARKET_ANALYSIS_SYSTEM_PROMPT, userPrompt), 'anthropic'),
+        withRetry(() => callOpenAIWithSearch(MARKET_ANALYSIS_SYSTEM_PROMPT, userPrompt), 'openai'),
       ]);
       const claudeMd = claudeR.status === 'fulfilled' ? claudeR.value.markdown : `❌ Claude falló: ${(claudeR as any).reason?.message || 'error'}`;
       const openaiMd = openaiR.status === 'fulfilled' ? openaiR.value.markdown : `❌ ChatGPT falló: ${(openaiR as any).reason?.message || 'error'}`;
@@ -214,9 +250,18 @@ async function runGeneration(analysisId: string) {
       });
     }
   } catch (err: any) {
+    console.error(`[market-analysis] generación ${analysisId} FALLÓ:`, err);
+    const raw = String(err?.message || err || 'Error generando informe');
+    // Traducimos los errores más comunes a mensajes accionables.
+    let friendly = raw;
+    if (raw.includes('fetch failed') || raw.includes('aborted') || raw.includes('ETIMEDOUT')) {
+      friendly = 'La generación tardó más de 15 minutos y se cortó. Probá regenerar — el prompt es pesado y a veces la primera pasada no cierra. Si vuelve a pasar, avisá y bajamos el alcance del prompt.';
+    } else if (raw.toLowerCase().includes('credit') || raw.toLowerCase().includes('balance')) {
+      friendly = raw + ' (Cargá crédito en console.anthropic.com/settings/billing o en platform.openai.com/settings/organization/billing).';
+    }
     await prisma.marketAnalysis.update({
       where: { id: analysisId },
-      data: { status: 'failed', errorMessage: err?.message || 'Error generando informe' },
+      data: { status: 'failed', errorMessage: friendly },
     });
   }
 }
