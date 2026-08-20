@@ -250,14 +250,26 @@ async function runGeneration(analysisId: string) {
       });
     }
   } catch (err: any) {
-    console.error(`[market-analysis] generación ${analysisId} FALLÓ:`, err);
+    // undici (fetch de Node) esconde el motivo real en err.cause — lo extraemos
+    // para diagnosticar. Cause típicos: ENOTFOUND, ECONNREFUSED, ETIMEDOUT,
+    // UND_ERR_CONNECT_TIMEOUT, UND_ERR_SOCKET.
+    const cause = (err as any)?.cause;
+    const causeCode = cause?.code || cause?.name || (cause ? String(cause) : '');
+    console.error(`[market-analysis] generación ${analysisId} FALLÓ:`, err, 'cause:', cause);
     const raw = String(err?.message || err || 'Error generando informe');
     // Traducimos los errores más comunes a mensajes accionables.
     let friendly = raw;
-    if (raw.includes('fetch failed') || raw.includes('aborted') || raw.includes('ETIMEDOUT')) {
-      friendly = 'La generación tardó más de 15 minutos y se cortó. Probá regenerar — el prompt es pesado y a veces la primera pasada no cierra. Si vuelve a pasar, avisá y bajamos el alcance del prompt.';
+    if (causeCode) friendly = `${raw} [motivo: ${causeCode}]`;
+    if (raw.includes('aborted') || causeCode === 'UND_ERR_CONNECT_TIMEOUT' || causeCode === 'ETIMEDOUT') {
+      friendly = `Timeout: la generación tardó más de 15 min y se cortó. Probá regenerar. [${causeCode || 'aborted'}]`;
+    } else if (raw.includes('fetch failed') && (causeCode === 'ENOTFOUND' || causeCode === 'ECONNREFUSED')) {
+      friendly = `El server no pudo conectar al proveedor de IA. Revisá conectividad de red del contenedor. [${causeCode}]`;
     } else if (raw.toLowerCase().includes('credit') || raw.toLowerCase().includes('balance')) {
       friendly = raw + ' (Cargá crédito en console.anthropic.com/settings/billing o en platform.openai.com/settings/organization/billing).';
+    } else if (raw.toLowerCase().includes('api key') || raw.toLowerCase().includes('unauthorized') || raw.includes('401')) {
+      friendly = 'La API key no es válida o expiró. Revisá ANTHROPIC_API_KEY / OPENAI_API_KEY en Easypanel.';
+    } else if (raw.includes('rate') || raw.includes('429')) {
+      friendly = 'Rate limit del proveedor. Esperá 1-2 min y regenerá.';
     }
     await prisma.marketAnalysis.update({
       where: { id: analysisId },
