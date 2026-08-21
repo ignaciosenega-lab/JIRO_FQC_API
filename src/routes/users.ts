@@ -5,7 +5,7 @@ import { authenticate, requireSuperadmin, AuthRequest, AppRole } from '../middle
 
 const router = Router();
 
-const VALID_ROLES: AppRole[] = ['SUPERADMIN', 'MANAGER', 'OPERACIONES', 'FRANQUICIA'];
+const VALID_ROLES: AppRole[] = ['SUPERADMIN', 'MANAGER', 'OPERACIONES', 'FRANQUICIA', 'VENDEDOR'];
 
 function isValidRole(role: unknown): role is AppRole {
   return typeof role === 'string' && VALID_ROLES.includes(role as AppRole);
