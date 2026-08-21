@@ -46,15 +46,19 @@ enum ManualItemType {
 // ─── Users & Auth ───────────────────────────────────────
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  name      String
-  role      Role     @default(FRANQUICIA)
-  avatar    String?
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String   @id @default(uuid())
+  email          String   @unique
+  password       String
+  name           String
+  role           Role     @default(FRANQUICIA)
+  avatar         String?
+  active         Boolean  @default(true)
+  // Toggle "recibe leads": el user entra al reparto ponderado de leads nuevos.
+  receivesLeads  Boolean  @default(false)
+  // Peso relativo del reparto (1 = normal; 2 = doble carga; etc.).
+  leadWeight     Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   franchise   Franchise? @relation(fields: [franchiseId], references: [id])
   franchiseId String?
@@ -68,6 +72,7 @@ model User {
   taskComments     TaskComment[]
   taskAttachments  TaskAttachment[]
   marketAnalyses   MarketAnalysis[]
+  assignedLeads    FranchiseLead[]   @relation("LeadAssignee")
 }
 
 // ─── Franchises ─────────────────────────────────────────
@@ -632,6 +637,11 @@ model FranchiseLead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Vendedor asignado. null = sin asignar (queda visible solo para admin).
+  assignedTo   User?   @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  assignedToId String?
+
   @@index([estado])
   @@index([createdAt])
+  @@index([assignedToId])
 }

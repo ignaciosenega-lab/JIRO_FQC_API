@@ -52,7 +52,7 @@ router.get('/', authenticate, requireSuperadmin, async (_req: AuthRequest, res: 
 // POST /api/users
 router.post('/', authenticate, requireSuperadmin, async (req: AuthRequest, res: Response) => {
   try {
-    const { email, password, name, role, franchiseId } = req.body;
+    const { email, password, name, role, franchiseId, receivesLeads, leadWeight } = req.body;
 
     if (!email?.trim() || !password || !name?.trim()) {
       res.status(400).json({ error: 'Email, contraseña y nombre requeridos' });
@@ -70,6 +70,7 @@ router.post('/', authenticate, requireSuperadmin, async (req: AuthRequest, res: 
     }
 
     const hashed = await bcrypt.hash(password, 10);
+    const parsedWeight = Number(leadWeight);
     const user = await prisma.user.create({
       data: {
         email: email.trim(),
@@ -77,6 +78,8 @@ router.post('/', authenticate, requireSuperadmin, async (req: AuthRequest, res: 
         name: name.trim(),
         role: finalRole,
         franchiseId: franchiseId || null,
+        receivesLeads: Boolean(receivesLeads),
+        leadWeight: isFinite(parsedWeight) && parsedWeight >= 1 && parsedWeight <= 100 ? Math.floor(parsedWeight) : 1,
       },
       include: { franchise: true },
       omit: { password: true },
@@ -94,7 +97,7 @@ router.post('/', authenticate, requireSuperadmin, async (req: AuthRequest, res: 
 // PATCH /api/users/:id
 router.patch('/:id', authenticate, requireSuperadmin, async (req: AuthRequest, res: Response) => {
   try {
-    const { name, role, active, franchiseId, password } = req.body;
+    const { name, role, active, franchiseId, password, receivesLeads, leadWeight } = req.body;
     const targetId = req.params.id as string;
 
     const current = await prisma.user.findUnique({ where: { id: targetId } });
@@ -143,6 +146,11 @@ router.patch('/:id', authenticate, requireSuperadmin, async (req: AuthRequest, r
     if (role !== undefined) data.role = role;
     if (active !== undefined) data.active = active;
     if (franchiseId !== undefined) data.franchiseId = franchiseId || null;
+    if (receivesLeads !== undefined) data.receivesLeads = Boolean(receivesLeads);
+    if (leadWeight !== undefined) {
+      const w = Number(leadWeight);
+      if (isFinite(w) && w >= 1 && w <= 100) data.leadWeight = Math.floor(w);
+    }
     if (password) {
       if (password.length < 6) {
         res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
