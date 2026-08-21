@@ -177,6 +177,11 @@ async function main() {
       dashboard: 'view', ai: 'none', ops: 'none', compliance: 'edit',
       score: 'view', visits: 'edit', units: 'view', expansion: 'none', royalties: 'none', marketing: 'none', sales: 'none', projects: 'none', users: 'none',
     },
+    VENDEDOR: {
+      // Solo puede trabajar sus leads (Expansión) y ver el dashboard con sus tareas / proyectos asignados.
+      dashboard: 'view', ai: 'none', ops: 'none', compliance: 'none',
+      score: 'none', visits: 'none', units: 'view', expansion: 'edit', royalties: 'none', marketing: 'none', sales: 'none', projects: 'view', users: 'none',
+    },
   };
 
   await prisma.rolePermissionsConfig.upsert({

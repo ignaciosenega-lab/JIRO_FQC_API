@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-export type AppRole = 'SUPERADMIN' | 'MANAGER' | 'OPERACIONES' | 'FRANQUICIA';
+export type AppRole = 'SUPERADMIN' | 'MANAGER' | 'OPERACIONES' | 'FRANQUICIA' | 'VENDEDOR';
 
 export interface AuthRequest extends Request {
   userId?: string;

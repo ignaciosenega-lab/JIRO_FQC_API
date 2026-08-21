@@ -71,6 +71,9 @@ router.post('/', authenticate, requireSuperadmin, async (req: AuthRequest, res: 
 
     const hashed = await bcrypt.hash(password, 10);
     const parsedWeight = Number(leadWeight);
+    // Auto-activar recepción de leads si el rol es VENDEDOR y no vino un valor
+    // explícito. Es lo que un usuario espera al crear "el vendedor".
+    const effReceivesLeads = receivesLeads !== undefined ? Boolean(receivesLeads) : finalRole === 'VENDEDOR';
     const user = await prisma.user.create({
       data: {
         email: email.trim(),
@@ -78,7 +81,7 @@ router.post('/', authenticate, requireSuperadmin, async (req: AuthRequest, res: 
         name: name.trim(),
         role: finalRole,
         franchiseId: franchiseId || null,
-        receivesLeads: Boolean(receivesLeads),
+        receivesLeads: effReceivesLeads,
         leadWeight: isFinite(parsedWeight) && parsedWeight >= 1 && parsedWeight <= 100 ? Math.floor(parsedWeight) : 1,
       },
       include: { franchise: true },

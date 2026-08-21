@@ -12,6 +12,7 @@ enum Role {
   MANAGER
   OPERACIONES
   FRANQUICIA
+  VENDEDOR
 }
 
 enum TicketStatus {
