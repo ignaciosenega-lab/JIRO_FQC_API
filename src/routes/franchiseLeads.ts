@@ -111,26 +111,33 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // GET /api/franchise-leads
-// - SUPERADMIN / MANAGER: ven TODOS los leads.
-// - Resto (con permiso expansion=view/edit): solo ven los que tienen asignados.
-// - Podés filtrar explícito con ?assignedToId=<id> o ?assignedToId=me o ?assignedToId=none (sin asignar).
+// Regla de visibilidad:
+// - Si el user tiene receivesLeads=true → actúa como vendedor, solo ve los suyos
+//   (aunque su rol global sea MANAGER o SUPERADMIN).
+// - Si NO tiene receivesLeads y es SUPERADMIN/MANAGER → ve todos los leads.
+// - Si NO tiene receivesLeads y es otro rol → solo los suyos.
+// Query params: ?assignedToId=<id|me|none|all> — admin puro puede overridear.
 router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const isAdmin = ADMIN_ROLES.has(req.userRole || '');
+    const me = await prisma.user.findUnique({
+      where: { id: req.userId! },
+      select: { receivesLeads: true },
+    });
+    const isPureAdmin = ADMIN_ROLES.has(req.userRole || '') && !me?.receivesLeads;
     const where: Record<string, unknown> = {};
 
-    // Filtro explícito por query string (solo admin puede filtrar por otro).
+    // Filtro explícito por query string (solo admin puro puede filtrar por otro).
     const q = typeof req.query.assignedToId === 'string' ? req.query.assignedToId : '';
     if (q === 'me') {
       where.assignedToId = req.userId!;
     } else if (q === 'none') {
-      if (!isAdmin) { res.status(403).json({ error: 'Solo admin' }); return; }
+      if (!isPureAdmin) { res.status(403).json({ error: 'Solo admin' }); return; }
       where.assignedToId = null;
     } else if (q && q !== 'all') {
-      if (!isAdmin && q !== req.userId) { res.status(403).json({ error: 'Solo podés ver tus propios leads' }); return; }
+      if (!isPureAdmin && q !== req.userId) { res.status(403).json({ error: 'Solo podés ver tus propios leads' }); return; }
       where.assignedToId = q;
-    } else if (!isAdmin) {
-      // Sin query explícito: los no-admin solo ven los propios.
+    } else if (!isPureAdmin) {
+      // Sin query explícito: se ven solo los propios (vendedores + admins que también reciben leads).
       where.assignedToId = req.userId!;
     }
 
@@ -151,10 +158,14 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
 // - Admin: puede editar cualquiera, incluyendo assignedToId (reasignar).
 router.patch('/:id', authenticate, requireLeadEditor, async (req: AuthRequest, res: Response) => {
   try {
-    const isAdmin = ADMIN_ROLES.has(req.userRole || '');
+    const me = await prisma.user.findUnique({
+      where: { id: req.userId! },
+      select: { receivesLeads: true },
+    });
+    const isPureAdmin = ADMIN_ROLES.has(req.userRole || '') && !me?.receivesLeads;
     const existing = await prisma.franchiseLead.findUnique({ where: { id: req.params.id as string } });
     if (!existing) { res.status(404).json({ error: 'Lead no encontrado' }); return; }
-    if (!isAdmin && existing.assignedToId !== req.userId) {
+    if (!isPureAdmin && existing.assignedToId !== req.userId) {
       res.status(403).json({ error: 'Solo podés editar tus propios leads' });
       return;
     }
@@ -163,8 +174,8 @@ router.patch('/:id', authenticate, requireLeadEditor, async (req: AuthRequest, r
     const data: Record<string, unknown> = {};
     if (typeof estado === 'string') data.estado = estado;
     if (typeof notas === 'string') data.notas = notas;
-    if (isAdmin && assignedToId !== undefined) {
-      // Admin puede reasignar. null = dejar sin asignar.
+    if (isPureAdmin && assignedToId !== undefined) {
+      // Solo admin puro puede reasignar. null = dejar sin asignar.
       data.assignedToId = assignedToId === null || assignedToId === '' ? null : String(assignedToId);
     }
     const lead = await prisma.franchiseLead.update({
