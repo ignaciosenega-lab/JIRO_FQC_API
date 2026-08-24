@@ -6,7 +6,7 @@ const router = Router();
 
 // Roles con visibilidad completa (ven todos los leads, no solo los propios).
 const ADMIN_ROLES = new Set(['SUPERADMIN', 'MANAGER']);
-const requireLeadEditor = requireRole('SUPERADMIN', 'MANAGER', 'OPERACIONES');
+const requireLeadEditor = requireRole('SUPERADMIN', 'MANAGER', 'OPERACIONES', 'VENDEDOR');
 const requireLeadAdmin = requireRole('SUPERADMIN', 'MANAGER');
 
 // ── Reparto ponderado ──────────────────────────────────────
