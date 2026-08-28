@@ -166,7 +166,9 @@ router.patch('/:id', authenticate, requireLeadEditor, async (req: AuthRequest, r
     const existing = await prisma.franchiseLead.findUnique({ where: { id: req.params.id as string } });
     if (!existing) { res.status(404).json({ error: 'Lead no encontrado' }); return; }
     if (!isPureAdmin && existing.assignedToId !== req.userId) {
-      res.status(403).json({ error: 'Solo podés editar tus propios leads' });
+      const assignedInfo = existing.assignedToId ? `otro vendedor (id ${existing.assignedToId.slice(0, 8)}…)` : 'nadie (sin asignar)';
+      console.warn(`[franchise-leads] PATCH ${req.params.id} denied for user ${req.userId} (role ${req.userRole}); lead assigned to ${existing.assignedToId || 'null'}`);
+      res.status(403).json({ error: `Solo podés editar tus propios leads. Este está asignado a: ${assignedInfo}.` });
       return;
     }
 
