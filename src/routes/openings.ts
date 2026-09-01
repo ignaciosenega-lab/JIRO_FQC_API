@@ -21,6 +21,37 @@ function parseDate(v: unknown): Date | null | undefined {
   return isNaN(d.getTime()) ? undefined : d;
 }
 
+// El template trae nombres sugeridos ("Yosue", "Luis", "Ignacio", "Nacho",
+// "Leandro", "Franquiciado", "Yosue y Lean", "Luis / Diana"). Los resolvemos a
+// un User real de la DB por primera coincidencia sub-string case-insensitive.
+// "Franquiciado" es un rol genérico y no matchea con nadie por default —
+// devuelve null. Si el sugerido combina varias personas ("Yosue y Lean"),
+// tomamos la primera; los alias como "Nacho"→"Ignacio" y "Lean"→"Leandro"
+// se resuelven vía la lista de sinónimos.
+const NAME_ALIASES: Record<string, string[]> = {
+  nacho: ['ignacio', 'nacho'],
+  ignacio: ['ignacio', 'nacho'],
+  lean: ['leandro', 'lean'],
+  leandro: ['leandro', 'lean'],
+};
+
+export function resolveSuggestedAssignee(
+  sugerido: string | null | undefined,
+  users: Array<{ id: string; name: string }>
+): string | null {
+  if (!sugerido) return null;
+  // Nos quedamos con la primera persona: "Yosue y Lean" → "Yosue".
+  const firstName = sugerido.split(/\s+y\s+|\s*\/\s*|\s*,\s*|\s+&\s+/i)[0]?.trim().toLowerCase();
+  if (!firstName) return null;
+  if (firstName === 'franquiciado') return null; // rol genérico, no un user
+  const candidates = NAME_ALIASES[firstName] || [firstName];
+  for (const cand of candidates) {
+    const match = users.find((u) => (u.name || '').toLowerCase().includes(cand));
+    if (match) return match.id;
+  }
+  return null;
+}
+
 // ── GET /api/openings ──────────────────────────────────────
 // Lista aperturas con conteos de progreso. Por default solo las 'en_curso'.
 // ?status=all|en_curso|abierta|cancelada
@@ -112,10 +143,13 @@ router.post('/', authenticate, requireOpeningsEditor, async (req: AuthRequest, r
       return;
     }
 
-    const templates = await prisma.openingTaskTemplate.findMany({
-      where: { active: true },
-      orderBy: [{ mode: 'asc' }, { grupo: 'asc' }, { orden: 'asc' }],
-    });
+    const [templates, users] = await Promise.all([
+      prisma.openingTaskTemplate.findMany({
+        where: { active: true },
+        orderBy: [{ mode: 'asc' }, { grupo: 'asc' }, { orden: 'asc' }],
+      }),
+      prisma.user.findMany({ where: { active: true }, select: { id: true, name: true } }),
+    ]);
 
     const opening = await prisma.$transaction(async (tx) => {
       const created = await tx.opening.create({
@@ -143,6 +177,7 @@ router.post('/', authenticate, requireOpeningsEditor, async (req: AuthRequest, r
             orden: t.orden,
             diasEstimados: t.diasEstimados,
             notas: t.notas,
+            assignedToId: resolveSuggestedAssignee(t.responsableSugerido, users),
           })),
         });
       }
@@ -276,6 +311,51 @@ router.delete('/:id/tasks/:taskId', authenticate, requireOpeningsEditor, async (
   }
 });
 
+// ── POST /api/openings/:id/auto-assign-suggested ───────────
+// Recorre las tareas de una apertura y, para las que NO tienen assignedTo,
+// resuelve el responsableSugerido del template a un User real y lo asigna.
+router.post('/:id/auto-assign-suggested', authenticate, requireOpeningsEditor, async (req: AuthRequest, res: Response) => {
+  try {
+    const openingId = req.params.id as string;
+    const opening = await prisma.opening.findUnique({ where: { id: openingId }, select: { id: true } });
+    if (!opening) { res.status(404).json({ error: 'Apertura no encontrada' }); return; }
+
+    const [tasks, templates, users] = await Promise.all([
+      prisma.openingTask.findMany({
+        where: { openingId, assignedToId: null },
+        select: { id: true, templateId: true },
+      }),
+      prisma.openingTaskTemplate.findMany({ select: { id: true, responsableSugerido: true } }),
+      prisma.user.findMany({ where: { active: true }, select: { id: true, name: true } }),
+    ]);
+
+    const suggestedById = new Map(templates.map((t) => [t.id, t.responsableSugerido]));
+
+    // Agrupamos actualizaciones por userId para minimizar queries.
+    const byUser = new Map<string, string[]>();
+    for (const t of tasks) {
+      const uid = resolveSuggestedAssignee(suggestedById.get(t.templateId), users);
+      if (!uid) continue;
+      if (!byUser.has(uid)) byUser.set(uid, []);
+      byUser.get(uid)!.push(t.id);
+    }
+
+    let assigned = 0;
+    for (const [uid, ids] of byUser.entries()) {
+      const r = await prisma.openingTask.updateMany({
+        where: { id: { in: ids } },
+        data: { assignedToId: uid },
+      });
+      assigned += r.count;
+    }
+
+    res.json({ assigned, unmatched: tasks.length - assigned });
+  } catch (err) {
+    console.error('[openings] auto-assign-suggested error:', err);
+    res.status(500).json({ error: 'Error al asignar responsables sugeridos' });
+  }
+});
+
 // ── POST /api/openings/import-current ──────────────────────
 // Importa los locales iniciales del HTML/Google Sheet. Idempotente:
 // no crea de nuevo un local ya existente.
@@ -352,6 +432,7 @@ router.post('/import-current', authenticate, requireSuperadmin, async (_req: Aut
               orden: t.orden,
               diasEstimados: t.diasEstimados,
               notas: t.notas,
+              assignedToId: resolveSuggestedAssignee(t.responsableSugerido, users),
             })),
           });
         }
