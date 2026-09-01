@@ -3,6 +3,8 @@ dotenv.config();
 
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import fs from 'fs';
+import path from 'path';
 
 const prisma = new PrismaClient();
 
@@ -163,24 +165,24 @@ async function main() {
   const defaultRolePermissions = {
     SUPERADMIN: {
       dashboard: 'edit', ai: 'edit', ops: 'edit', compliance: 'edit',
-      score: 'edit', visits: 'edit', units: 'edit', expansion: 'edit', royalties: 'edit', marketing: 'edit', sales: 'edit', projects: 'edit', users: 'edit',
+      score: 'edit', visits: 'edit', units: 'edit', expansion: 'edit', royalties: 'edit', marketing: 'edit', sales: 'edit', projects: 'edit', openings: 'edit', users: 'edit',
     },
     MANAGER: {
       dashboard: 'edit', ai: 'edit', ops: 'edit', compliance: 'edit',
-      score: 'edit', visits: 'edit', units: 'edit', expansion: 'none', royalties: 'none', marketing: 'none', sales: 'edit', projects: 'edit', users: 'none',
+      score: 'edit', visits: 'edit', units: 'edit', expansion: 'none', royalties: 'none', marketing: 'none', sales: 'edit', projects: 'edit', openings: 'edit', users: 'none',
     },
     OPERACIONES: {
       dashboard: 'view', ai: 'edit', ops: 'edit', compliance: 'view',
-      score: 'view', visits: 'edit', units: 'view', expansion: 'none', royalties: 'none', marketing: 'none', sales: 'view', projects: 'edit', users: 'none',
+      score: 'view', visits: 'edit', units: 'view', expansion: 'none', royalties: 'none', marketing: 'none', sales: 'view', projects: 'edit', openings: 'edit', users: 'none',
     },
     FRANQUICIA: {
       dashboard: 'view', ai: 'none', ops: 'none', compliance: 'edit',
-      score: 'view', visits: 'edit', units: 'view', expansion: 'none', royalties: 'none', marketing: 'none', sales: 'none', projects: 'none', users: 'none',
+      score: 'view', visits: 'edit', units: 'view', expansion: 'none', royalties: 'none', marketing: 'none', sales: 'none', projects: 'none', openings: 'none', users: 'none',
     },
     VENDEDOR: {
       // Solo puede trabajar sus leads (Expansión) y ver el dashboard con sus tareas / proyectos asignados.
       dashboard: 'view', ai: 'none', ops: 'none', compliance: 'none',
-      score: 'none', visits: 'none', units: 'view', expansion: 'edit', royalties: 'none', marketing: 'none', sales: 'none', projects: 'view', users: 'none',
+      score: 'none', visits: 'none', units: 'view', expansion: 'edit', royalties: 'none', marketing: 'none', sales: 'none', projects: 'view', openings: 'none', users: 'none',
     },
   };
 
@@ -193,6 +195,34 @@ async function main() {
     },
   });
   console.log('✅ Role permissions config created');
+
+  // Opening task templates — poblar/actualizar desde el JSON fuente.
+  // Un template ya existente NO se pisa (solo se crea si falta) para no perder
+  // ediciones hechas por SUPERADMIN vía la UI.
+  const templatesPath = path.resolve(__dirname, '..', 'scripts', 'data', 'opening-templates.json');
+  if (fs.existsSync(templatesPath)) {
+    const raw = fs.readFileSync(templatesPath, 'utf8');
+    const items: Array<{
+      id: string; mode: string; tipo: string; grupo: string; orden: number;
+      tarea: string; categoria: string | null; semana: string | null;
+      responsableSugerido: string | null; diasEstimados: number | null; notas: string;
+    }> = JSON.parse(raw);
+    for (const t of items) {
+      await prisma.openingTaskTemplate.upsert({
+        where: { id: t.id },
+        update: {}, // no pisamos ediciones existentes
+        create: {
+          id: t.id, mode: t.mode, tipo: t.tipo, grupo: t.grupo, orden: t.orden,
+          tarea: t.tarea, categoria: t.categoria, semana: t.semana,
+          responsableSugerido: t.responsableSugerido, diasEstimados: t.diasEstimados,
+          notas: t.notas || '',
+        },
+      });
+    }
+    console.log(`✅ Opening task templates seeded (${items.length} items)`);
+  } else {
+    console.log('⚠️  scripts/data/opening-templates.json no encontrado — se saltea seed de templates');
+  }
 
   console.log('\n🎉 Seed complete!');
 }

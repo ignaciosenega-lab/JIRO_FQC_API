@@ -1,0 +1,64 @@
+{
+  "locations": [
+    {
+      "localName": "Jiro Flores",
+      "zona": "Flores, CABA",
+      "franquiciado": "",
+      "respOperacionesName": "",
+      "respMarketingName": "Nacho",
+      "fechaObjetivoApertura": "2026-09-01"
+    },
+    {
+      "localName": "Jiro Cipolletti",
+      "zona": "Cipolletti, Río Negro",
+      "franquiciado": "",
+      "respOperacionesName": "",
+      "respMarketingName": "Nacho",
+      "fechaObjetivoApertura": "2026-09-30"
+    },
+    {
+      "localName": "Jiro Florida",
+      "zona": "Florida",
+      "franquiciado": "",
+      "respOperacionesName": "",
+      "respMarketingName": "Nacho",
+      "fechaObjetivoApertura": "2026-10-05"
+    },
+    {
+      "localName": "Jiro San Miguel de Tucumán",
+      "zona": "San Miguel de Tucumán, Tucumán",
+      "franquiciado": "",
+      "respOperacionesName": "",
+      "respMarketingName": "Nacho",
+      "fechaObjetivoApertura": null
+    }
+  ],
+  "completedByLocal": {
+    "Jiro Flores": {
+      "checklist": {
+        "AL-03.1": "completada",
+        "AL-03.2": "completada",
+        "AL-03.3": "completada",
+        "AL-03.4": "completada",
+        "AL-03.5": "completada",
+        "AL-03.6": "completada",
+        "AL-03.7": "completada",
+        "AL-04.1": "completada",
+        "AL-04.2": "completada",
+        "AL-04.3": "completada",
+        "AL-04.4": "completada",
+        "AL-04.5": "completada",
+        "AL-05.1": "completada",
+        "AL-05.2": "completada",
+        "AL-05.3": "completada",
+        "AL-06.4": "completada",
+        "CA-01.1": "completada",
+        "CA-01.2": "completada",
+        "CA-01.3": "completada",
+        "CA-01.4": "completada",
+        "CA-01.5": "completada",
+        "CA-01.6": "completada"
+      }
+    }
+  }
+}

@@ -74,6 +74,9 @@ model User {
   taskAttachments  TaskAttachment[]
   marketAnalyses   MarketAnalysis[]
   assignedLeads    FranchiseLead[]   @relation("LeadAssignee")
+  openingsAsOps       Opening[]     @relation("OpeningOps")
+  openingsAsMkt       Opening[]     @relation("OpeningMkt")
+  assignedOpeningTasks OpeningTask[] @relation("OpeningTaskAssignee")
 }
 
 // ─── Franchises ─────────────────────────────────────────
@@ -621,6 +624,85 @@ model SalesWeekday {
   updatedAt DateTime @updatedAt
 
   @@unique([periodo, weekday])
+}
+
+// ─── Aperturas — tracker de puesta en marcha de locales ──
+// Reemplaza el tracker externo (Google Sheet + Apps Script) por datos propios.
+// - OpeningTaskTemplate: catálogo de tareas modelo (checklist + marketing).
+//   Los editables por SUPERADMIN; una edición no toca aperturas existentes,
+//   solo las nuevas (por eso guardamos snapshots en OpeningTask).
+// - Opening: un local que está en proceso de apertura.
+// - OpeningTask: instancia concreta de una tarea para un Opening, con snapshot
+//   del título/categoría/etc. y estado propio (pendiente / en_proceso /
+//   completada / bloqueada).
+
+model OpeningTaskTemplate {
+  id                  String   @id             // "OB-01", "OB-01.1", "MK-3"
+  mode                String                   // 'checklist' | 'marketing'
+  tipo                String                   // 'principal' | 'subtarea' | 'accion'
+  grupo               String                   // "OB-01" o el nombre de la semana
+  orden               Int      @default(0)
+  tarea               String
+  categoria           String?
+  semana              String?
+  responsableSugerido String?
+  diasEstimados       Int?
+  notas               String   @default("")
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([mode])
+  @@index([grupo])
+}
+
+model Opening {
+  id                    String    @id @default(cuid())
+  localName             String
+  zona                  String    @default("")
+  franquiciado          String    @default("")
+  respOperaciones       User?     @relation("OpeningOps", fields: [respOperacionesId], references: [id], onDelete: SetNull)
+  respOperacionesId     String?
+  respMarketing         User?     @relation("OpeningMkt", fields: [respMarketingId], references: [id], onDelete: SetNull)
+  respMarketingId       String?
+  fechaObjetivoApertura DateTime?
+  status                String    @default("en_curso") // 'en_curso' | 'abierta' | 'cancelada'
+  notas                 String    @default("")
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  tasks OpeningTask[]
+
+  @@index([status])
+  @@index([fechaObjetivoApertura])
+}
+
+model OpeningTask {
+  id              String    @id @default(cuid())
+  opening         Opening   @relation(fields: [openingId], references: [id], onDelete: Cascade)
+  openingId       String
+  templateId      String    // sin FK — snapshot que sobrevive a renombres/soft-deletes de templates
+  templateTitulo  String
+  categoria       String?
+  semana          String?
+  grupo           String
+  tipo            String
+  mode            String    // 'checklist' | 'marketing'
+  orden           Int       @default(0)
+  diasEstimados   Int?
+  notas           String    @default("")
+  estado          String    @default("pendiente") // 'pendiente' | 'en_proceso' | 'completada' | 'bloqueada'
+  fechaInicio     DateTime?
+  fechaCompletada DateTime?
+  assignedTo      User?     @relation("OpeningTaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  assignedToId    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([openingId])
+  @@index([estado])
+  @@index([assignedToId])
+  @@index([mode])
 }
 
 // ─── Landing Franquicias — Leads ────────────────────────

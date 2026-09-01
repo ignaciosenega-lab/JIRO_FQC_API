@@ -34,6 +34,8 @@ import franchiseLeadsRoutes from './routes/franchiseLeads';
 import aiRoutes from './routes/ai';
 import salesRoutes from './routes/sales';
 import marketAnalysisRoutes from './routes/marketAnalysis';
+import openingsRoutes from './routes/openings';
+import openingTemplatesRoutes from './routes/openingTemplates';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -87,6 +89,8 @@ app.use('/api/franchise-leads', franchiseLeadsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/market-analysis', marketAnalysisRoutes);
+app.use('/api/openings', openingsRoutes);
+app.use('/api/opening-templates', openingTemplatesRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
