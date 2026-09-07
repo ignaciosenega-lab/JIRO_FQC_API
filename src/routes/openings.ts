@@ -21,36 +21,52 @@ function parseDate(v: unknown): Date | null | undefined {
   return isNaN(d.getTime()) ? undefined : d;
 }
 
-// El template trae nombres sugeridos ("Yosue", "Luis", "Ignacio", "Nacho",
-// "Leandro", "Franquiciado", "Yosue y Lean", "Luis / Diana"). Los resolvemos a
-// un User real de la DB por primera coincidencia sub-string case-insensitive.
-// "Franquiciado" es un rol genérico y no matchea con nadie por default —
-// devuelve null. Si el sugerido combina varias personas ("Yosue y Lean"),
-// tomamos la primera; los alias como "Nacho"→"Ignacio" y "Lean"→"Leandro"
-// se resuelven vía la lista de sinónimos.
+// El template trae nombres sugeridos como "Yosue", "Luis", "Ignacio", "Nacho",
+// "Leandro", "Franquiciado", "Yosue y Lean", "Luis / Diana". Los resolvemos a
+// N users reales de la DB por sub-string case-insensitive contra User.name.
+// Cuando el sugerido combina varias personas ("Yosue y Lean" / "Yosue y
+// Franquiciado" / "Luis / Diana"), devolvemos TODOS los matches — la tarea
+// queda multi-asignada en el pivot OpeningTaskAssignee.
+// Aliases explícitos: nacho ↔ ignacio, lean ↔ leandro. "Franquiciado" matchea
+// al User genérico (creado en seed) con name = "Franquiciado".
 const NAME_ALIASES: Record<string, string[]> = {
   nacho: ['ignacio', 'nacho'],
   ignacio: ['ignacio', 'nacho'],
   lean: ['leandro', 'lean'],
   leandro: ['leandro', 'lean'],
+  franquiciado: ['franquiciado'],
 };
 
-export function resolveSuggestedAssignee(
+export function resolveSuggestedAssignees(
   sugerido: string | null | undefined,
   users: Array<{ id: string; name: string }>
-): string | null {
-  if (!sugerido) return null;
-  // Nos quedamos con la primera persona: "Yosue y Lean" → "Yosue".
-  const firstName = sugerido.split(/\s+y\s+|\s*\/\s*|\s*,\s*|\s+&\s+/i)[0]?.trim().toLowerCase();
-  if (!firstName) return null;
-  if (firstName === 'franquiciado') return null; // rol genérico, no un user
-  const candidates = NAME_ALIASES[firstName] || [firstName];
-  for (const cand of candidates) {
-    const match = users.find((u) => (u.name || '').toLowerCase().includes(cand));
-    if (match) return match.id;
+): string[] {
+  if (!sugerido) return [];
+  const parts = sugerido
+    .split(/\s+y\s+|\s*\/\s*|\s*,\s*|\s+&\s+/i)
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const out: string[] = [];
+  for (const p of parts) {
+    const candidates = NAME_ALIASES[p] || [p];
+    for (const cand of candidates) {
+      const match = users.find((u) => (u.name || '').toLowerCase().includes(cand));
+      if (match && !out.includes(match.id)) {
+        out.push(match.id);
+        break;
+      }
+    }
   }
-  return null;
+  return out;
 }
+
+// Shape uniforme del include de tasks para GET/PATCH — devuelve los assignees
+// desestructurados listos para el frontend.
+const TASK_INCLUDE = {
+  assignees: {
+    include: { user: { select: { id: true, name: true } } },
+  },
+} as const;
 
 // ── GET /api/openings ──────────────────────────────────────
 // Lista aperturas con conteos de progreso. Por default solo las 'en_curso'.
@@ -118,7 +134,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
         respMarketing: { select: { id: true, name: true } },
         tasks: {
           orderBy: [{ mode: 'asc' }, { grupo: 'asc' }, { orden: 'asc' }],
-          include: { assignedTo: { select: { id: true, name: true } } },
+          include: TASK_INCLUDE,
         },
       },
     });
@@ -134,7 +150,8 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
 });
 
 // ── POST /api/openings ─────────────────────────────────────
-// Crea una apertura. Al crear, popula todas las tareas del template activo.
+// Crea una apertura. Al crear, popula todas las tareas del template activo
+// y las multi-asigna a los users que matchean el responsableSugerido.
 router.post('/', authenticate, requireOpeningsEditor, async (req: AuthRequest, res: Response) => {
   try {
     const b = req.body || {};
@@ -163,9 +180,13 @@ router.post('/', authenticate, requireOpeningsEditor, async (req: AuthRequest, r
           notas: (b.notas || '').toString(),
         },
       });
-      if (templates.length > 0) {
-        await tx.openingTask.createMany({
-          data: templates.map((t) => ({
+      // Creamos tareas de a una para tener sus IDs (createMany no los devuelve).
+      // Después ensamblamos todos los assignees en un solo createMany para
+      // minimizar round-trips.
+      const assigneeRows: { taskId: string; userId: string }[] = [];
+      for (const t of templates) {
+        const task = await tx.openingTask.create({
+          data: {
             openingId: created.id,
             templateId: t.id,
             templateTitulo: t.tarea,
@@ -177,12 +198,18 @@ router.post('/', authenticate, requireOpeningsEditor, async (req: AuthRequest, r
             orden: t.orden,
             diasEstimados: t.diasEstimados,
             notas: t.notas,
-            assignedToId: resolveSuggestedAssignee(t.responsableSugerido, users),
-          })),
+          },
+          select: { id: true },
         });
+        for (const uid of resolveSuggestedAssignees(t.responsableSugerido, users)) {
+          assigneeRows.push({ taskId: task.id, userId: uid });
+        }
+      }
+      if (assigneeRows.length > 0) {
+        await tx.openingTaskAssignee.createMany({ data: assigneeRows, skipDuplicates: true });
       }
       return created;
-    });
+    }, { timeout: 30000 });
 
     res.status(201).json({ success: true, id: opening.id });
   } catch (err) {
@@ -231,9 +258,23 @@ router.delete('/:id', authenticate, requireOpeningsEditor, async (req: AuthReque
 });
 
 // ── PATCH /api/openings/:id/tasks/:taskId ──────────────────
+// Actualiza estado / fecha / notas / diasEstimados y también el conjunto
+// completo de responsables (assignedToIds = array). Si se pasa assignedToIds,
+// se reemplaza el set completo (delete-all + createMany en pivot).
 router.patch('/:id/tasks/:taskId', authenticate, requireOpeningsEditor, async (req: AuthRequest, res: Response) => {
   try {
     const b = req.body || {};
+    const taskId = req.params.taskId as string;
+    const openingId = req.params.id as string;
+
+    // Chequeo pertenencia antes de tocar nada.
+    const existing = await prisma.openingTask.findUnique({ where: { id: taskId }, select: { openingId: true } });
+    if (!existing) { res.status(404).json({ error: 'Tarea no encontrada' }); return; }
+    if (existing.openingId !== openingId) {
+      res.status(400).json({ error: 'La tarea no pertenece a esa apertura' });
+      return;
+    }
+
     const data: Record<string, unknown> = {};
     if (typeof b.estado === 'string') {
       if (!VALID_ESTADOS.has(b.estado)) {
@@ -248,18 +289,33 @@ router.patch('/:id/tasks/:taskId', authenticate, requireOpeningsEditor, async (r
       if (parsed !== undefined) data.fechaInicio = parsed;
     }
     if (typeof b.notas === 'string') data.notas = b.notas;
-    if (b.assignedToId !== undefined) data.assignedToId = b.assignedToId || null;
     if (typeof b.diasEstimados === 'number' || b.diasEstimados === null) data.diasEstimados = b.diasEstimados;
 
-    const task = await prisma.openingTask.update({
-      where: { id: req.params.taskId as string },
-      data,
-      include: { assignedTo: { select: { id: true, name: true } } },
+    // Reasignación multi-user: si viene assignedToIds (array), reemplazo todos.
+    const wantsReassign = Array.isArray(b.assignedToIds);
+    const newIds: string[] = wantsReassign
+      ? (b.assignedToIds as unknown[]).filter((x): x is string => typeof x === 'string' && !!x.trim())
+      : [];
+
+    const task = await prisma.$transaction(async (tx) => {
+      const t = Object.keys(data).length > 0
+        ? await tx.openingTask.update({ where: { id: taskId }, data })
+        : await tx.openingTask.findUnique({ where: { id: taskId } });
+      if (wantsReassign) {
+        await tx.openingTaskAssignee.deleteMany({ where: { taskId } });
+        if (newIds.length > 0) {
+          await tx.openingTaskAssignee.createMany({
+            data: newIds.map((userId) => ({ taskId, userId })),
+            skipDuplicates: true,
+          });
+        }
+      }
+      return tx.openingTask.findUnique({
+        where: { id: taskId },
+        include: TASK_INCLUDE,
+      });
     });
-    if (task.openingId !== req.params.id) {
-      res.status(400).json({ error: 'La tarea no pertenece a esa apertura' });
-      return;
-    }
+
     res.json(task);
   } catch (err) {
     console.error('[openings] PATCH task error:', err);
@@ -269,6 +325,7 @@ router.patch('/:id/tasks/:taskId', authenticate, requireOpeningsEditor, async (r
 
 // ── POST /api/openings/:id/tasks ───────────────────────────
 // Agrega una tarea manual (fuera del template) a una apertura.
+// Acepta assignedToIds (array de userIds) opcional.
 router.post('/:id/tasks', authenticate, requireOpeningsEditor, async (req: AuthRequest, res: Response) => {
   try {
     const b = req.body || {};
@@ -277,21 +334,33 @@ router.post('/:id/tasks', authenticate, requireOpeningsEditor, async (req: AuthR
       return;
     }
     const mode = b.mode === 'marketing' ? 'marketing' : 'checklist';
-    const task = await prisma.openingTask.create({
-      data: {
-        openingId: req.params.id as string,
-        templateId: `custom-${Date.now()}`,
-        templateTitulo: b.templateTitulo.trim(),
-        categoria: b.categoria || null,
-        semana: b.semana || null,
-        grupo: (b.grupo || 'CUSTOM').toString(),
-        tipo: mode === 'marketing' ? 'accion' : (b.tipo === 'principal' ? 'principal' : 'subtarea'),
-        mode,
-        orden: typeof b.orden === 'number' ? b.orden : 999,
-        diasEstimados: typeof b.diasEstimados === 'number' ? b.diasEstimados : null,
-        notas: b.notas || '',
-        assignedToId: b.assignedToId || null,
-      },
+    const assignIds: string[] = Array.isArray(b.assignedToIds)
+      ? (b.assignedToIds as unknown[]).filter((x): x is string => typeof x === 'string' && !!x.trim())
+      : [];
+
+    const task = await prisma.$transaction(async (tx) => {
+      const t = await tx.openingTask.create({
+        data: {
+          openingId: req.params.id as string,
+          templateId: `custom-${Date.now()}`,
+          templateTitulo: b.templateTitulo.trim(),
+          categoria: b.categoria || null,
+          semana: b.semana || null,
+          grupo: (b.grupo || 'CUSTOM').toString(),
+          tipo: mode === 'marketing' ? 'accion' : (b.tipo === 'principal' ? 'principal' : 'subtarea'),
+          mode,
+          orden: typeof b.orden === 'number' ? b.orden : 999,
+          diasEstimados: typeof b.diasEstimados === 'number' ? b.diasEstimados : null,
+          notas: b.notas || '',
+        },
+      });
+      if (assignIds.length > 0) {
+        await tx.openingTaskAssignee.createMany({
+          data: assignIds.map((userId) => ({ taskId: t.id, userId })),
+          skipDuplicates: true,
+        });
+      }
+      return tx.openingTask.findUnique({ where: { id: t.id }, include: TASK_INCLUDE });
     });
     res.status(201).json(task);
   } catch (err) {
@@ -312,8 +381,10 @@ router.delete('/:id/tasks/:taskId', authenticate, requireOpeningsEditor, async (
 });
 
 // ── POST /api/openings/:id/auto-assign-suggested ───────────
-// Recorre las tareas de una apertura y, para las que NO tienen assignedTo,
-// resuelve el responsableSugerido del template a un User real y lo asigna.
+// Recorre las tareas de una apertura que NO tienen assignees, resuelve el
+// responsableSugerido del template y crea las entradas de pivot correspon-
+// dientes. Como una tarea puede terminar con varios responsables (multi-
+// asign), reporta cuántas tareas quedaron con al menos 1 asignado.
 router.post('/:id/auto-assign-suggested', authenticate, requireOpeningsEditor, async (req: AuthRequest, res: Response) => {
   try {
     const openingId = req.params.id as string;
@@ -321,8 +392,9 @@ router.post('/:id/auto-assign-suggested', authenticate, requireOpeningsEditor, a
     if (!opening) { res.status(404).json({ error: 'Apertura no encontrada' }); return; }
 
     const [tasks, templates, users] = await Promise.all([
+      // Solo tareas SIN ningún assignee — no queremos pisar reasignaciones manuales.
       prisma.openingTask.findMany({
-        where: { openingId, assignedToId: null },
+        where: { openingId, assignees: { none: {} } },
         select: { id: true, templateId: true },
       }),
       prisma.openingTaskTemplate.findMany({ select: { id: true, responsableSugerido: true } }),
@@ -331,25 +403,24 @@ router.post('/:id/auto-assign-suggested', authenticate, requireOpeningsEditor, a
 
     const suggestedById = new Map(templates.map((t) => [t.id, t.responsableSugerido]));
 
-    // Agrupamos actualizaciones por userId para minimizar queries.
-    const byUser = new Map<string, string[]>();
+    const rows: { taskId: string; userId: string }[] = [];
+    let matchedTaskCount = 0;
     for (const t of tasks) {
-      const uid = resolveSuggestedAssignee(suggestedById.get(t.templateId), users);
-      if (!uid) continue;
-      if (!byUser.has(uid)) byUser.set(uid, []);
-      byUser.get(uid)!.push(t.id);
+      const uids = resolveSuggestedAssignees(suggestedById.get(t.templateId), users);
+      if (uids.length === 0) continue;
+      matchedTaskCount++;
+      for (const uid of uids) rows.push({ taskId: t.id, userId: uid });
     }
 
-    let assigned = 0;
-    for (const [uid, ids] of byUser.entries()) {
-      const r = await prisma.openingTask.updateMany({
-        where: { id: { in: ids } },
-        data: { assignedToId: uid },
-      });
-      assigned += r.count;
+    if (rows.length > 0) {
+      await prisma.openingTaskAssignee.createMany({ data: rows, skipDuplicates: true });
     }
 
-    res.json({ assigned, unmatched: tasks.length - assigned });
+    res.json({
+      assigned: matchedTaskCount,
+      unmatched: tasks.length - matchedTaskCount,
+      pivotRowsCreated: rows.length,
+    });
   } catch (err) {
     console.error('[openings] auto-assign-suggested error:', err);
     res.status(500).json({ error: 'Error al asignar responsables sugeridos' });
@@ -375,7 +446,6 @@ router.post('/import-current', authenticate, requireSuperadmin, async (_req: Aut
       completedByLocal: Record<string, Record<string, Record<string, string>>>;
     };
 
-    // Resolver responsables por nombre (busca match case-insensitive).
     const users = await prisma.user.findMany({ select: { id: true, name: true } });
     const findUserByName = (name: string): string | null => {
       const n = (name || '').trim().toLowerCase();
@@ -384,7 +454,6 @@ router.post('/import-current', authenticate, requireSuperadmin, async (_req: Aut
       return match?.id || null;
     };
 
-    // Pre-cargar templates activos para poblar las tareas de cada apertura.
     const templates = await prisma.openingTaskTemplate.findMany({
       where: { active: true },
       orderBy: [{ mode: 'asc' }, { grupo: 'asc' }, { orden: 'asc' }],
@@ -418,9 +487,10 @@ router.post('/import-current', authenticate, requireSuperadmin, async (_req: Aut
               : '',
           },
         });
-        if (templates.length > 0) {
-          await tx.openingTask.createMany({
-            data: templates.map((t) => ({
+        const assigneeRows: { taskId: string; userId: string }[] = [];
+        for (const t of templates) {
+          const task = await tx.openingTask.create({
+            data: {
               openingId: op.id,
               templateId: t.id,
               templateTitulo: t.tarea,
@@ -432,15 +502,20 @@ router.post('/import-current', authenticate, requireSuperadmin, async (_req: Aut
               orden: t.orden,
               diasEstimados: t.diasEstimados,
               notas: t.notas,
-              assignedToId: resolveSuggestedAssignee(t.responsableSugerido, users),
-            })),
+            },
+            select: { id: true },
           });
+          for (const uid of resolveSuggestedAssignees(t.responsableSugerido, users)) {
+            assigneeRows.push({ taskId: task.id, userId: uid });
+          }
+        }
+        if (assigneeRows.length > 0) {
+          await tx.openingTaskAssignee.createMany({ data: assigneeRows, skipDuplicates: true });
         }
         return op;
-      });
+      }, { timeout: 30000 });
       created++;
 
-      // Marcar como completadas las tareas indicadas para este local.
       const completedForThis = parsed.completedByLocal?.[loc.localName] || {};
       for (const mode of Object.keys(completedForThis)) {
         const byId = completedForThis[mode];

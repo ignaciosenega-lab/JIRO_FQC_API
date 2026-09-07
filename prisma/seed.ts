@@ -115,6 +115,23 @@ async function main() {
   });
   console.log('✅ Operaciones user created (ops@jiro.com / ops123)');
 
+  // Franquiciado — user genérico usado por el módulo Aperturas para las
+  // tareas del template cuyo responsable sugerido es "Franquiciado" (rol
+  // genérico del template, no una persona real). Es reemplazable después
+  // por el franquiciado real de cada local si querés.
+  const franquiciadoPassword = await bcrypt.hash('franquiciado123', 10);
+  await prisma.user.upsert({
+    where: { email: 'franquiciado@jiro.com' },
+    update: {},
+    create: {
+      email: 'franquiciado@jiro.com',
+      password: franquiciadoPassword,
+      name: 'Franquiciado',
+      role: 'FRANQUICIA',
+    },
+  });
+  console.log('✅ Franquiciado genérico creado (name="Franquiciado")');
+
   // Create Ono config
   await prisma.onoConfig.upsert({
     where: { id: 'singleton' },

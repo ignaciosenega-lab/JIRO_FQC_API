@@ -76,7 +76,7 @@ model User {
   assignedLeads    FranchiseLead[]   @relation("LeadAssignee")
   openingsAsOps       Opening[]     @relation("OpeningOps")
   openingsAsMkt       Opening[]     @relation("OpeningMkt")
-  assignedOpeningTasks OpeningTask[] @relation("OpeningTaskAssignee")
+  openingTaskAssignments OpeningTaskAssignee[]
 }
 
 // ─── Franchises ─────────────────────────────────────────
@@ -694,15 +694,27 @@ model OpeningTask {
   estado          String    @default("pendiente") // 'pendiente' | 'en_proceso' | 'completada' | 'bloqueada'
   fechaInicio     DateTime?
   fechaCompletada DateTime?
-  assignedTo      User?     @relation("OpeningTaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
-  assignedToId    String?
+  assignees       OpeningTaskAssignee[]
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@index([openingId])
   @@index([estado])
-  @@index([assignedToId])
   @@index([mode])
+}
+
+// Pivot: una tarea puede tener N responsables (ej. "Yosue y Lean").
+model OpeningTaskAssignee {
+  id        String      @id @default(cuid())
+  task      OpeningTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime    @default(now())
+
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
 }
 
 // ─── Landing Franquicias — Leads ────────────────────────
