@@ -427,6 +427,86 @@ router.post('/:id/auto-assign-suggested', authenticate, requireOpeningsEditor, a
   }
 });
 
+// ── POST /api/openings/:sourceId/replicate-assignees ───────
+// Copia los responsables asignados de un local FUENTE a N locales DESTINO.
+// Matching por templateId (cada tarea tiene un templateId inmutable, así se
+// alinean las tareas equivalentes entre locales aunque el título del template
+// haya cambiado desde el import). NO se tocan estados/fechas del destino —
+// solo assignees. Reemplaza el set completo de cada tarea destino cuyo
+// templateId aparece en el source.
+router.post('/:sourceId/replicate-assignees', authenticate, requireOpeningsEditor, async (req: AuthRequest, res: Response) => {
+  try {
+    const sourceId = req.params.sourceId as string;
+    const b = req.body || {};
+    const targetIds: string[] = Array.isArray(b.targetOpeningIds)
+      ? (b.targetOpeningIds as unknown[]).filter((x): x is string => typeof x === 'string' && !!x.trim())
+      : [];
+    if (targetIds.length === 0) {
+      res.status(400).json({ error: 'targetOpeningIds vacío' });
+      return;
+    }
+    if (targetIds.includes(sourceId)) {
+      res.status(400).json({ error: 'El local fuente no puede estar en la lista de destinos' });
+      return;
+    }
+
+    // Traer tareas del source con sus assignees.
+    const sourceTasks = await prisma.openingTask.findMany({
+      where: { openingId: sourceId },
+      select: { templateId: true, assignees: { select: { userId: true } } },
+    });
+    if (sourceTasks.length === 0) {
+      res.status(404).json({ error: 'El local fuente no tiene tareas' });
+      return;
+    }
+
+    // Map templateId → userIds. Templates sin ningún assignee se saltean
+    // (no queremos borrar los responsables del target si el source no tiene).
+    const sourceMap = new Map<string, string[]>();
+    for (const t of sourceTasks) {
+      const uids = t.assignees.map((a) => a.userId);
+      if (uids.length > 0) sourceMap.set(t.templateId, uids);
+    }
+
+    let processed = 0;
+    let tasksReassigned = 0;
+    let pivotRowsCreated = 0;
+
+    for (const targetId of targetIds) {
+      const targetTasks = await prisma.openingTask.findMany({
+        where: { openingId: targetId },
+        select: { id: true, templateId: true },
+      });
+
+      // Para cada tarea del target cuyo templateId aparece en el source,
+      // reemplazar sus assignees por los del source.
+      const idsToReplace: string[] = [];
+      const newRows: { taskId: string; userId: string }[] = [];
+      for (const t of targetTasks) {
+        const uids = sourceMap.get(t.templateId);
+        if (!uids || uids.length === 0) continue;
+        idsToReplace.push(t.id);
+        for (const uid of uids) newRows.push({ taskId: t.id, userId: uid });
+      }
+
+      if (idsToReplace.length > 0) {
+        await prisma.$transaction([
+          prisma.openingTaskAssignee.deleteMany({ where: { taskId: { in: idsToReplace } } }),
+          prisma.openingTaskAssignee.createMany({ data: newRows, skipDuplicates: true }),
+        ]);
+      }
+      processed++;
+      tasksReassigned += idsToReplace.length;
+      pivotRowsCreated += newRows.length;
+    }
+
+    res.json({ processed, tasksReassigned, pivotRowsCreated });
+  } catch (err) {
+    console.error('[openings] replicate-assignees error:', err);
+    res.status(500).json({ error: 'Error al replicar responsables' });
+  }
+});
+
 // ── POST /api/openings/import-current ──────────────────────
 // Importa los locales iniciales del HTML/Google Sheet. Idempotente:
 // no crea de nuevo un local ya existente.
