@@ -532,10 +532,12 @@ router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthReq
       debug: {
         revenueRawRows: revenueRows.length,
         revenueParsedLines: revenueParsed.length,
+        revenueLocalsCount: new Set(revenueParsed.map((r) => r.local)).size,
         ordersRawRows: ordersRows.length,
         ordersParsedLines: ordersParsed.length,
-        firstRevenueChannels: revenueParsed.slice(0, 10).map((r) => r.channel),
-        firstRevenueLocals: Array.from(new Set(revenueParsed.map((r) => r.local))).slice(0, 10),
+        ordersLocalsCount: new Set(ordersParsed.map((r) => r.local)).size,
+        allRevenueLocals: Array.from(new Set(revenueParsed.map((r) => r.local))),
+        allRevenueChannels: Array.from(new Set(revenueParsed.map((r) => r.channel))),
       },
       note: 'SalesWeekday no se sincroniza desde el sheet (queda igual — se llena con el JSON de import o CSV upload).',
     });
