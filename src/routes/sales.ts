@@ -84,18 +84,24 @@ router.get('/summary', authenticate, async (req: Request, res: Response) => {
     const prevD = new Date(y, m - 2, 1);
     const prev = `${prevD.getFullYear()}-${String(prevD.getMonth() + 1).padStart(2, '0')}`;
 
-    const [current, previous] = await Promise.all([
+    const [current, previous, currentTotal, prevTotal] = await Promise.all([
       prisma.salesByChannel.findMany({
         where: { periodo },
         include: { franchise: { select: { id: true, name: true } } },
       }),
       prisma.salesByChannel.findMany({ where: { periodo: prev } }),
+      // SalesMonthlyTotal: totales agregados de red (Google Sheet "Análisis
+      // Jiro"). Cuando existen, tienen prioridad sobre la suma de
+      // SalesByChannel — el sheet es la fuente de verdad para el número grande.
+      prisma.salesMonthlyTotal.findUnique({ where: { periodo } }),
+      prisma.salesMonthlyTotal.findUnique({ where: { periodo: prev } }),
     ]);
 
-    const totalOrders = current.reduce((s, r) => s + r.orders, 0);
-    const totalRevenue = current.reduce((s, r) => s + r.revenue, 0);
+    // Priorizar SalesMonthlyTotal para KPIs generales; fallback a suma de canales.
+    const totalOrders = currentTotal?.orders ?? current.reduce((s, r) => s + r.orders, 0);
+    const totalRevenue = currentTotal?.revenue ?? current.reduce((s, r) => s + r.revenue, 0);
     const avgTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-    const prevRevenue = previous.reduce((s, r) => s + r.revenue, 0);
+    const prevRevenue = prevTotal?.revenue ?? previous.reduce((s, r) => s + r.revenue, 0);
     const prevMonthDelta = prevRevenue > 0 ? (totalRevenue - prevRevenue) / prevRevenue : null;
 
     // Ranking por local
@@ -341,6 +347,7 @@ router.post('/import-2026', authenticate, requireSuperadmin, async (_req: AuthRe
 const SHEET_TABS = {
   revenue: 'Facturación x local x canal (Mensual)',
   orders: 'Pedidos x local x canal (Mensual)',
+  monthlyTotal: 'Análisis Jiro',
 } as const;
 
 // Whitelist de canales — comparación EXACTA (sin trim). Así las filas
@@ -481,6 +488,33 @@ router.get('/debug-raw-sheet', authenticate, requireSuperadmin, async (_req: Aut
   }
 });
 
+// Parser del tab "Análisis Jiro" — devuelve los totales agregados por mes.
+// Layout:
+//   Filas 6-17: cada fila es un mes de la red completa. Cols relevantes:
+//     - col 5: número de mes (1-12) — a veces string, a veces number
+//     - col 6: pedidos totales del mes
+//     - col 7: facturación total del mes (con "$")
+// El resto del tab tiene bloques por canal, evolución %, etc. — se ignoran.
+function parseAnalisisJiroTab(rows: string[][]): Array<{ monthNum: number; orders: number; revenue: number }> {
+  const out: Array<{ monthNum: number; orders: number; revenue: number }> = [];
+  // Recorremos las primeras 20 filas — los totales están cerca del principio.
+  for (let i = 0; i < Math.min(20, rows.length); i++) {
+    const row = rows[i] || [];
+    const monthCell = String(row[5] ?? '').trim();
+    const monthNum = Number(monthCell);
+    if (!Number.isInteger(monthNum) || monthNum < 1 || monthNum > 12) continue;
+    const ordersCell = String(row[6] ?? '').trim();
+    const revenueCell = String(row[7] ?? '').trim();
+    // Necesitamos que la fila de facturación tenga "$" para saber que es el
+    // bloque correcto (no una fila con "1","2","3" del header de canales).
+    if (!revenueCell.includes('$')) continue;
+    const orders = Number(ordersCell.replace(/[.\s]/g, '')) || 0;
+    const revenue = parsePivotValue(revenueCell);
+    out.push({ monthNum, orders, revenue });
+  }
+  return out;
+}
+
 router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthRequest, res: Response) => {
   try {
     const spreadsheetId = process.env.SALES_SHEET_ID;
@@ -489,13 +523,15 @@ router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthReq
       return;
     }
 
-    const [revenueRows, ordersRows] = await Promise.all([
+    const [revenueRows, ordersRows, jiroRows] = await Promise.all([
       readSheet(spreadsheetId, SHEET_TABS.revenue),
       readSheet(spreadsheetId, SHEET_TABS.orders),
+      readSheet(spreadsheetId, SHEET_TABS.monthlyTotal),
     ]);
 
     const revenueParsed = parsePivotTab(revenueRows);
     const ordersParsed = parsePivotTab(ordersRows);
+    const monthlyTotalsParsed = parseAnalisisJiroTab(jiroRows);
 
     const year = resolveSheetYear();
     const franchises = await prisma.franchise.findMany({ select: { id: true, name: true } });
@@ -556,9 +592,22 @@ router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthReq
       });
     }
 
+    // Upsertear totales agregados de red del tab "Análisis Jiro".
+    let monthlyTotalsUpserted = 0;
+    for (const t of monthlyTotalsParsed) {
+      const periodo = `${year}-${String(t.monthNum).padStart(2, '0')}`;
+      await prisma.salesMonthlyTotal.upsert({
+        where: { periodo },
+        create: { periodo, orders: t.orders, revenue: t.revenue },
+        update: { orders: t.orders, revenue: t.revenue },
+      });
+      monthlyTotalsUpserted++;
+    }
+
     res.json({
       tabsProcessed: Object.values(SHEET_TABS),
       channelRowsUpserted: finalRows.length,
+      monthlyTotalsUpserted,
       missingFranchises: Array.from(missingFranchises),
       skippedChannels: Array.from(skippedChannels),
       // Debug: cuántas filas trajo cada tab del sheet y cuántas líneas de

@@ -615,6 +615,19 @@ model SalesByChannel {
   @@index([franchiseId])
 }
 
+// Totales agregados de red por mes. Se llenan sincronizando el tab
+// "Análisis Jiro" del Google Sheet (fuente de verdad para los KPIs
+// generales cuando no tenemos desglose por local en la DB).
+model SalesMonthlyTotal {
+  id        String   @id @default(cuid())
+  periodo   String   @unique   // "YYYY-MM"
+  orders    Int      @default(0)
+  revenue   Float    @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@index([periodo])
+}
+
 model SalesWeekday {
   id        String   @id @default(cuid())
   periodo   String   // "YYYY-MM"
