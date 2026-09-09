@@ -447,6 +447,29 @@ function parsePivotTab(rows: string[][]): Array<{ local: string; monthNum: numbe
   return out;
 }
 
+// GET /api/sales/debug-raw-sheet — devuelve las filas RAW del sheet tal cual
+// vienen de la API v4, para diagnosticar por qué el parser no interpreta.
+// Solo SUPERADMIN. Temporal — sacar después de resolver.
+router.get('/debug-raw-sheet', authenticate, requireSuperadmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const spreadsheetId = process.env.SALES_SHEET_ID;
+    if (!spreadsheetId) { res.status(500).json({ error: 'Falta env SALES_SHEET_ID' }); return; }
+    const rows = await readSheet(spreadsheetId, SHEET_TABS.revenue);
+    res.json({
+      tab: SHEET_TABS.revenue,
+      totalRows: rows.length,
+      // Serializamos las primeras 70 filas COMPLETAS para inspeccionar.
+      rows: rows.slice(0, 70).map((r, i) => ({
+        idx: i + 1,
+        len: r?.length ?? 0,
+        cells: r,
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Error debug raw sheet' });
+  }
+});
+
 router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthRequest, res: Response) => {
   try {
     const spreadsheetId = process.env.SALES_SHEET_ID;
