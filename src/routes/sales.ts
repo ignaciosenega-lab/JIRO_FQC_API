@@ -501,6 +501,16 @@ router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthReq
       channelRowsUpserted: finalRows.length,
       missingFranchises: Array.from(missingFranchises),
       skippedChannels: Array.from(skippedChannels),
+      // Debug: cuántas filas trajo cada tab del sheet y cuántas líneas de
+      // canal parseó cada uno. Sirve para diagnosticar 0 filas actualizadas.
+      debug: {
+        revenueRawRows: revenueRows.length,
+        revenueParsedLines: revenueParsed.length,
+        ordersRawRows: ordersRows.length,
+        ordersParsedLines: ordersParsed.length,
+        firstRevenueChannels: revenueParsed.slice(0, 10).map((r) => r.channel),
+        firstRevenueLocals: Array.from(new Set(revenueParsed.map((r) => r.local))).slice(0, 10),
+      },
       note: 'SalesWeekday no se sincroniza desde el sheet (queda igual — se llena con el JSON de import o CSV upload).',
     });
   } catch (err: any) {
