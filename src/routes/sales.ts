@@ -538,6 +538,10 @@ router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthReq
         ordersLocalsCount: new Set(ordersParsed.map((r) => r.local)).size,
         allRevenueLocals: Array.from(new Set(revenueParsed.map((r) => r.local))),
         allRevenueChannels: Array.from(new Set(revenueParsed.map((r) => r.channel))),
+        // Dump raw de la col A de las primeras 40 filas del tab revenue.
+        // Ayuda a ver qué "encabezados de local" trae el sheet y en qué
+        // fila (índice 1-based).
+        firstColA: revenueRows.slice(0, 40).map((r, idx) => `${idx + 1}: ${String(r?.[0] ?? '').slice(0, 40)}`),
       },
       note: 'SalesWeekday no se sincroniza desde el sheet (queda igual — se llena con el JSON de import o CSV upload).',
     });
