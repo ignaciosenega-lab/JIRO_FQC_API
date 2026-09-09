@@ -397,7 +397,17 @@ function parsePivotTab(rows: string[][]): Array<{ local: string; monthNum: numbe
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] || [];
     const firstCell = String(row[0] || '').trim();
-    if (!firstCell) continue;
+
+    // Fila con col A vacía. Puede ser (a) totalmente vacía → skip normal, o
+    // (b) una etiqueta de sub-sección analítica del sheet (tipo "Promedio
+    // locales Jiro", "Monte Grande vs Adrogue", etc.) que tiene texto en
+    // cols B+. En (b) reseteamos currentLocal para NO acumular los valores
+    // del bloque siguiente en el último local real.
+    if (!firstCell) {
+      const anyText = row.some((c) => String(c || '').trim() !== '');
+      if (anyText) currentLocal = '';
+      continue;
+    }
 
     const firstLower = firstCell.toLowerCase();
 
@@ -418,20 +428,21 @@ function parsePivotTab(rows: string[][]): Array<{ local: string; monthNum: numbe
 
     // ¿Esta fila tiene valores $ en las cols de mes?
     let hasDollarValue = false;
-    let hasAnyValue = false;
+    let hasPercentValue = false;
     for (const { col } of monthCols) {
       const cell = String(row[col] || '').trim();
-      if (cell !== '' && cell !== '-') hasAnyValue = true;
       if (cell.includes('$')) { hasDollarValue = true; break; }
+      if (cell.includes('%')) hasPercentValue = true;
     }
 
     if (!hasDollarValue) {
-      // Sin valores $: puede ser (a) nombre de local (nueva sección, todas
-      // las cols vacías o solo unas pocas con "0"), o (b) fila del bloque
-      // de variación % (valores tipo "-70%"). Distinción: si NO hay ningún
-      // valor en cols de mes → asumimos nombre de local; si hay valores
-      // (pero sin $), es variación % → skip.
-      if (!hasAnyValue) currentLocal = firstCell;
+      // Sin valores $: puede ser (a) nombre de local (fila que abre nueva
+      // sección, posiblemente con texto descriptivo en col B), o (b) fila
+      // del bloque de variación % (valores tipo "-70%"). Si NINGUNA col de
+      // mes tiene "%", asumimos que es un nombre de local — así detectamos
+      // filas como ["Adrogue", "Facturación mensuales | Adrogue"] donde
+      // col B tiene texto pero cols de mes están vacías.
+      if (!hasPercentValue) currentLocal = firstCell;
       continue;
     }
 
