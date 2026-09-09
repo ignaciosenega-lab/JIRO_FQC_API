@@ -601,4 +601,117 @@ router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthReq
   }
 });
 
+// ── POST /api/sales/ask ────────────────────────────────────
+// Asistente conversacional que responde preguntas sobre las ventas.
+// Arma un snapshot compacto de SalesByChannel + SalesMonthlyTotal + franchises
+// y lo pasa como system context a Claude para que responda.
+// Body: { question: string, history?: [{role, content}] }
+router.post('/ask', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) { res.status(500).json({ error: 'ANTHROPIC_API_KEY no configurada' }); return; }
+
+    const question = String(req.body?.question || '').trim();
+    if (!question) { res.status(400).json({ error: 'Falta question' }); return; }
+    const history = Array.isArray(req.body?.history) ? req.body.history : [];
+
+    // Snapshot: últimos 15 meses de data por canal + totales por mes + franquicias.
+    const [byChannel, monthlyTotals, franchises] = await Promise.all([
+      prisma.salesByChannel.findMany({
+        orderBy: [{ periodo: 'desc' }, { franchiseId: 'asc' }, { channel: 'asc' }],
+        take: 5000, // hard cap defensivo
+        select: { franchiseId: true, periodo: true, channel: true, orders: true, revenue: true },
+      }),
+      prisma.salesMonthlyTotal.findMany({ orderBy: { periodo: 'desc' }, take: 24 }),
+      prisma.franchise.findMany({
+        where: { active: true },
+        select: { id: true, name: true, zona: true, barrio: true, city: true },
+      }),
+    ]);
+
+    // Formato compacto para no explotar el contexto:
+    // Franquicias: [id, nombre_limpio, zona, ciudad]
+    // Sales:       [periodo, franchiseId, canal, orders, revenue_int]
+    const franchisesLite = franchises.map((f) => ({
+      id: f.id,
+      name: f.name.replace(/^Jiro\s*Sushi\s*/i, '').trim(),
+      zona: f.zona || null,
+      city: f.city || null,
+    }));
+    const salesLite = byChannel.map((s) => [s.periodo, s.franchiseId, s.channel, s.orders, Math.round(s.revenue)]);
+    const totalsLite = monthlyTotals.map((t) => [t.periodo, t.orders, Math.round(t.revenue)]);
+
+    const today = new Date();
+    const yyyymm = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+
+    const systemPrompt = `Sos un analista de ventas de JIRO Sushi, una red de franquicias de sushi en Argentina.
+El usuario te va a hacer preguntas sobre las ventas. Respondé SIEMPRE con números específicos
+del snapshot de datos que te doy abajo. Sé conciso, directo y accionable. Usá el nombre del
+LOCAL (no el franchiseId) en las respuestas. Todos los montos son en pesos argentinos (ARS).
+La fecha de hoy es ${today.toISOString().slice(0, 10)} y el período actual es ${yyyymm}.
+
+Canales que existen: Local (histórico "WhatsApp" en el sheet fuente), Rappi, Rappi Turbo,
+Rappi Veggie, Pedidos Ya, Mas delivery, Mercado Pago, Mercado Pago Veggie.
+
+Datos:
+
+FRANQUICIAS (id → info):
+${JSON.stringify(franchisesLite)}
+
+TOTALES DE RED POR MES [periodo, orders, revenue]:
+${JSON.stringify(totalsLite)}
+
+VENTAS POR (LOCAL, MES, CANAL) [periodo, franchiseId, canal, orders, revenue]:
+${JSON.stringify(salesLite)}
+
+Reglas:
+- Cuando decís un monto, formatealo tipo "$1.234.567" con puntos como separador de miles.
+- Cuando referís a un local, usá su name (buscá el id en la tabla de franquicias).
+- Si te preguntan por "caída de X meses", compará mes actual con X meses atrás y mostrá el %.
+- Si un local tiene revenue=0 en un canal en un mes, mencionalo explícitamente si viene al caso.
+- Sugerí acciones concretas cuando puedas ("este local podría reactivar Rappi porque su categoría muestra…").
+- No inventes datos que no estén en el snapshot. Si te falta info, decilo.`;
+
+    const messages = [
+      ...history.map((m: any) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '') })),
+      { role: 'user', content: question },
+    ];
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 2000,
+        system: systemPrompt,
+        messages,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      res.status(resp.status).json({ error: data?.error?.message || 'Error consultando Claude' });
+      return;
+    }
+    const answer = Array.isArray(data.content)
+      ? data.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n')
+      : '';
+    res.json({
+      answer,
+      usage: data.usage,
+      stats: {
+        franchisesInContext: franchises.length,
+        salesRowsInContext: byChannel.length,
+        monthsInContext: monthlyTotals.length,
+      },
+    });
+  } catch (err: any) {
+    console.error('[sales] ask error:', err);
+    res.status(500).json({ error: err?.message || 'Error al procesar la pregunta' });
+  }
+});
+
 export default router;
