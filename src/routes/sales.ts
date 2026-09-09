@@ -3,6 +3,7 @@ import multer from 'multer';
 import Papa from 'papaparse';
 import prisma from '../prisma';
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
+import { readSheet } from '../lib/googleSheets';
 
 const requireSalesEditor = requireRole('SUPERADMIN', 'MANAGER');
 const requireSuperadmin = requireRole('SUPERADMIN');
@@ -324,6 +325,187 @@ router.post('/import-2026', authenticate, requireSuperadmin, async (_req: AuthRe
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || 'Error en import 2026' });
+  }
+});
+
+// ── POST /api/sales/sync-sheet ─────────────────────────────
+// Sincroniza SalesByChannel desde el Google Sheet fuente. Solo SUPERADMIN.
+// Config: env SALES_SHEET_ID (id del spreadsheet) + GOOGLE_SA_KEY_JSON
+// (credenciales del service account). Los tabs están hardcodeados porque
+// dependen del layout del sheet — si cambian, se edita acá y se redeploy.
+//
+// El sheet es un PIVOT: locales en filas (con una fila de "encabezado de
+// local" que solo tiene el nombre), canales anidados debajo, meses en
+// columnas (pares [valor, variación %] — solo se lee la 1ra col de cada par).
+
+const SHEET_TABS = {
+  revenue: 'Facturación x local x canal (Mensual)',
+  orders: 'Pedidos x local x canal (Mensual)',
+} as const;
+
+// Whitelist de canales — normalizamos con trim() antes de comparar.
+const CANONICAL_CHANNEL_SET = new Set(CHANNELS.map((c) => c.trim()));
+
+// Parsea un valor tipo " $1.076.090" → 1076090. También acepta ints/floats
+// crudos (por si el sheet cambia el formato).
+function parsePivotValue(raw: string | undefined | null): number {
+  if (raw === null || raw === undefined) return 0;
+  const s = String(raw).trim();
+  if (!s || s === '-') return 0;
+  // Quita $, espacios y separadores de miles (puntos). Coma como decimal.
+  const clean = s.replace(/[$\s]/g, '').replace(/\./g, '').replace(',', '.');
+  const n = Number(clean);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
+// Devuelve el año 4 dígitos vigente del sheet. Los meses vienen numerados
+// 1-12 y el sheet no incluye el año en cada columna, así que asumimos el
+// año actual (el sheet se llama "Distribución de venta 2026"). Configurable
+// vía env SALES_SHEET_YEAR si en algún momento hay que sincronizar histórico.
+function resolveSheetYear(): string {
+  const envYear = process.env.SALES_SHEET_YEAR;
+  if (envYear && /^\d{4}$/.test(envYear)) return envYear;
+  return String(new Date().getFullYear());
+}
+
+// Parser del pivot. Devuelve un array de {local, mes(1-12), channel, value}.
+// El año se agrega afuera para armar `periodo = YYYY-MM`.
+function parsePivotTab(rows: string[][]): Array<{ local: string; monthNum: number; channel: string; value: number }> {
+  const out: Array<{ local: string; monthNum: number; channel: string; value: number }> = [];
+  // Detectar el header row: buscamos la fila que empieza con "Canal" (case-insensitive).
+  let headerRowIdx = -1;
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    if (String(rows[i]?.[0] || '').trim().toLowerCase() === 'canal') { headerRowIdx = i; break; }
+  }
+  if (headerRowIdx < 0) return out;
+
+  // De la fila header, mapear qué columnas corresponden a qué mes (1-12).
+  // Cada mes ocupa 2 columnas: [valor, variación %]. Solo nos interesa la 1ra.
+  const header = rows[headerRowIdx];
+  const monthCols: Array<{ col: number; monthNum: number }> = [];
+  for (let c = 1; c < header.length; c++) {
+    const v = String(header[c] || '').trim();
+    const n = Number(v);
+    if (Number.isInteger(n) && n >= 1 && n <= 12) {
+      monthCols.push({ col: c, monthNum: n });
+    }
+  }
+
+  // Después del header, iteramos filas: cada fila puede ser (a) encabezado
+  // de local (solo col A con nombre, resto vacío/"") o (b) fila de canal.
+  let currentLocal = '';
+  for (let i = headerRowIdx + 1; i < rows.length; i++) {
+    const row = rows[i] || [];
+    const firstCell = String(row[0] || '').trim();
+    if (!firstCell) continue;
+
+    // ¿Fila con datos numéricos en las cols de meses?
+    let hasData = false;
+    for (const { col } of monthCols) {
+      const cell = String(row[col] || '').trim();
+      if (cell !== '' && cell !== '-') { hasData = true; break; }
+    }
+
+    if (!hasData) {
+      // Header de local: la col A tiene contenido pero las cols de mes están vacías.
+      currentLocal = firstCell;
+      continue;
+    }
+    if (!currentLocal) continue; // fila de canal sin local previo — la ignoramos
+
+    // Fila de canal.
+    const channel = firstCell;
+    for (const { col, monthNum } of monthCols) {
+      const value = parsePivotValue(row[col]);
+      // Guardamos incluso 0s — así se sobreescriben posibles valores viejos.
+      out.push({ local: currentLocal, monthNum, channel, value });
+    }
+  }
+
+  return out;
+}
+
+router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const spreadsheetId = process.env.SALES_SHEET_ID;
+    if (!spreadsheetId) {
+      res.status(500).json({ error: 'Falta env SALES_SHEET_ID' });
+      return;
+    }
+
+    const [revenueRows, ordersRows] = await Promise.all([
+      readSheet(spreadsheetId, SHEET_TABS.revenue),
+      readSheet(spreadsheetId, SHEET_TABS.orders),
+    ]);
+
+    const revenueParsed = parsePivotTab(revenueRows);
+    const ordersParsed = parsePivotTab(ordersRows);
+
+    const year = resolveSheetYear();
+    const franchises = await prisma.franchise.findMany({ select: { id: true, name: true } });
+
+    // Merge por (local, periodo, channel). Aceptamos 0 si el sheet no
+    // tiene una de las dos métricas para esa combinación.
+    type Key = string;
+    const bucket = new Map<Key, { local: string; periodo: string; channel: string; orders: number; revenue: number }>();
+    const keyOf = (local: string, periodo: string, channel: string) => `${local}|${periodo}|${channel}`;
+
+    const missingFranchises = new Set<string>();
+    const skippedChannels = new Set<string>();
+
+    const absorb = (arr: Array<{ local: string; monthNum: number; channel: string; value: number }>, kind: 'orders' | 'revenue') => {
+      for (const r of arr) {
+        const trimmedChannel = r.channel.trim();
+        if (!CANONICAL_CHANNEL_SET.has(trimmedChannel)) {
+          skippedChannels.add(r.channel);
+          continue;
+        }
+        const periodo = `${year}-${String(r.monthNum).padStart(2, '0')}`;
+        const k = keyOf(r.local, periodo, trimmedChannel);
+        let entry = bucket.get(k);
+        if (!entry) {
+          entry = { local: r.local, periodo, channel: trimmedChannel, orders: 0, revenue: 0 };
+          bucket.set(k, entry);
+        }
+        entry[kind] = r.value;
+      }
+    };
+    absorb(revenueParsed, 'revenue');
+    absorb(ordersParsed, 'orders');
+
+    // Resolver local → franchiseId. Los que no matchean van a missingFranchises.
+    const finalRows: Array<{ franchiseId: string; periodo: string; channel: string; orders: number; revenue: number }> = [];
+    for (const entry of bucket.values()) {
+      const fid = matchFranchiseId(entry.local, franchises);
+      if (!fid) { missingFranchises.add(entry.local); continue; }
+      finalRows.push({
+        franchiseId: fid,
+        periodo: entry.periodo,
+        channel: entry.channel,
+        orders: entry.orders,
+        revenue: entry.revenue,
+      });
+    }
+
+    // Upsert en lotes (Prisma no tiene upsertMany nativo).
+    for (const r of finalRows) {
+      await prisma.salesByChannel.upsert({
+        where: { franchiseId_periodo_channel: { franchiseId: r.franchiseId, periodo: r.periodo, channel: r.channel } },
+        create: r,
+        update: { orders: r.orders, revenue: r.revenue },
+      });
+    }
+
+    res.json({
+      tabsProcessed: Object.values(SHEET_TABS),
+      channelRowsUpserted: finalRows.length,
+      missingFranchises: Array.from(missingFranchises),
+      skippedChannels: Array.from(skippedChannels),
+      note: 'SalesWeekday no se sincroniza desde el sheet (queda igual — se llena con el JSON de import o CSV upload).',
+    });
+  } catch (err: any) {
+    console.error('[sales] sync-sheet error:', err);
+    res.status(500).json({ error: err?.message || 'Error al sincronizar con Google Sheets' });
   }
 });
 
