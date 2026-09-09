@@ -343,8 +343,11 @@ const SHEET_TABS = {
   orders: 'Pedidos x local x canal (Mensual)',
 } as const;
 
-// Whitelist de canales — normalizamos con trim() antes de comparar.
-const CANONICAL_CHANNEL_SET = new Set(CHANNELS.map((c) => c.trim()));
+// Whitelist de canales — comparación EXACTA (sin trim). Así las filas
+// duplicadas del sheet como "Rappi " (con espacio final, que es el subtotal
+// del grupo Rappi) NO matchean con "Rappi" y van a skippedChannels —
+// evitamos doble conteo.
+const CANONICAL_CHANNEL_SET = new Set<string>(CHANNELS);
 
 // Parsea un valor tipo " $1.076.090" → 1076090. También acepta ints/floats
 // crudos (por si el sheet cambia el formato).
@@ -369,55 +372,74 @@ function resolveSheetYear(): string {
 }
 
 // Parser del pivot. Devuelve un array de {local, mes(1-12), channel, value}.
-// El año se agrega afuera para armar `periodo = YYYY-MM`.
+//
+// Layout del sheet fuente (por cada local):
+//   ┌ nombre del local (col A, resto vacío)     ← "Adrogue"
+//   ├ "Canal","1","2","","3",...                 ← header meses (valores $)
+//   ├ "Rappi"," $X"," $Y",...
+//   ├ ...más canales...
+//   ├ "Total"...                                  ← subtotal $
+//   ├ "Canal","1","2","",...                     ← header repetido (variación %)
+//   ├ "Rappi","-70%","-67%",...
+//   ├ ...canales con %...
+//   ├ "Total"..."%"                              ← subtotal %
+//   └ (siguiente local...)
+//
+// Estrategia: iterar TODA la fila trackeando currentLocal + monthCols.
+// Solo procesamos filas con valores $ (celda contiene "$"). Las filas del
+// bloque de variación % se ignoran automáticamente porque sus valores no
+// tienen "$".
 function parsePivotTab(rows: string[][]): Array<{ local: string; monthNum: number; channel: string; value: number }> {
   const out: Array<{ local: string; monthNum: number; channel: string; value: number }> = [];
-  // Detectar el header row: buscamos la fila que empieza con "Canal" (case-insensitive).
-  let headerRowIdx = -1;
-  for (let i = 0; i < Math.min(10, rows.length); i++) {
-    if (String(rows[i]?.[0] || '').trim().toLowerCase() === 'canal') { headerRowIdx = i; break; }
-  }
-  if (headerRowIdx < 0) return out;
-
-  // De la fila header, mapear qué columnas corresponden a qué mes (1-12).
-  // Cada mes ocupa 2 columnas: [valor, variación %]. Solo nos interesa la 1ra.
-  const header = rows[headerRowIdx];
-  const monthCols: Array<{ col: number; monthNum: number }> = [];
-  for (let c = 1; c < header.length; c++) {
-    const v = String(header[c] || '').trim();
-    const n = Number(v);
-    if (Number.isInteger(n) && n >= 1 && n <= 12) {
-      monthCols.push({ col: c, monthNum: n });
-    }
-  }
-
-  // Después del header, iteramos filas: cada fila puede ser (a) encabezado
-  // de local (solo col A con nombre, resto vacío/"") o (b) fila de canal.
   let currentLocal = '';
-  for (let i = headerRowIdx + 1; i < rows.length; i++) {
+  let monthCols: Array<{ col: number; monthNum: number }> = [];
+
+  for (let i = 0; i < rows.length; i++) {
     const row = rows[i] || [];
     const firstCell = String(row[0] || '').trim();
     if (!firstCell) continue;
 
-    // ¿Fila con datos numéricos en las cols de meses?
-    let hasData = false;
-    for (const { col } of monthCols) {
-      const cell = String(row[col] || '').trim();
-      if (cell !== '' && cell !== '-') { hasData = true; break; }
-    }
+    const firstLower = firstCell.toLowerCase();
 
-    if (!hasData) {
-      // Header de local: la col A tiene contenido pero las cols de mes están vacías.
-      currentLocal = firstCell;
+    // Header "Canal": actualizar mapping mes → col.
+    if (firstLower === 'canal') {
+      const newCols: Array<{ col: number; monthNum: number }> = [];
+      for (let c = 1; c < row.length; c++) {
+        const v = String(row[c] || '').trim();
+        const n = Number(v);
+        if (Number.isInteger(n) && n >= 1 && n <= 12) newCols.push({ col: c, monthNum: n });
+      }
+      if (newCols.length > 0) monthCols = newCols;
       continue;
     }
-    if (!currentLocal) continue; // fila de canal sin local previo — la ignoramos
 
-    // Fila de canal.
-    const channel = firstCell;
+    // Subtotal por local — skip.
+    if (firstLower === 'total') continue;
+
+    // ¿Esta fila tiene valores $ en las cols de mes?
+    let hasDollarValue = false;
+    let hasAnyValue = false;
+    for (const { col } of monthCols) {
+      const cell = String(row[col] || '').trim();
+      if (cell !== '' && cell !== '-') hasAnyValue = true;
+      if (cell.includes('$')) { hasDollarValue = true; break; }
+    }
+
+    if (!hasDollarValue) {
+      // Sin valores $: puede ser (a) nombre de local (nueva sección, todas
+      // las cols vacías o solo unas pocas con "0"), o (b) fila del bloque
+      // de variación % (valores tipo "-70%"). Distinción: si NO hay ningún
+      // valor en cols de mes → asumimos nombre de local; si hay valores
+      // (pero sin $), es variación % → skip.
+      if (!hasAnyValue) currentLocal = firstCell;
+      continue;
+    }
+
+    // Fila de canal con valores $.
+    if (!currentLocal || monthCols.length === 0) continue;
+    const channel = firstCell; // sin trim — respetamos exact case + espacios
     for (const { col, monthNum } of monthCols) {
       const value = parsePivotValue(row[col]);
-      // Guardamos incluso 0s — así se sobreescriben posibles valores viejos.
       out.push({ local: currentLocal, monthNum, channel, value });
     }
   }
@@ -455,19 +477,23 @@ router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthReq
 
     const absorb = (arr: Array<{ local: string; monthNum: number; channel: string; value: number }>, kind: 'orders' | 'revenue') => {
       for (const r of arr) {
-        const trimmedChannel = r.channel.trim();
-        if (!CANONICAL_CHANNEL_SET.has(trimmedChannel)) {
+        // Comparación EXACTA con la whitelist — "Rappi " (con espacio, que
+        // es el subtotal del grupo Rappi en el sheet) NO matchea con "Rappi"
+        // → va a skippedChannels y se evita el doble conteo.
+        if (!CANONICAL_CHANNEL_SET.has(r.channel)) {
           skippedChannels.add(r.channel);
           continue;
         }
         const periodo = `${year}-${String(r.monthNum).padStart(2, '0')}`;
-        const k = keyOf(r.local, periodo, trimmedChannel);
+        const k = keyOf(r.local, periodo, r.channel);
         let entry = bucket.get(k);
         if (!entry) {
-          entry = { local: r.local, periodo, channel: trimmedChannel, orders: 0, revenue: 0 };
+          entry = { local: r.local, periodo, channel: r.channel, orders: 0, revenue: 0 };
           bucket.set(k, entry);
         }
-        entry[kind] = r.value;
+        // Suma en vez de pisar: si el sheet tiene filas duplicadas con el
+        // mismo canal (ej. "Mercado Pago" aparece 2 veces), suman sus valores.
+        entry[kind] += r.value;
       }
     };
     absorb(revenueParsed, 'revenue');
