@@ -345,16 +345,28 @@ router.post('/import-2026', authenticate, requireSuperadmin, async (_req: AuthRe
 // columnas (pares [valor, variación %] — solo se lee la 1ra col de cada par).
 
 const SHEET_TABS = {
-  revenue: 'Facturación x local x canal (Mensual)',
-  orders: 'Pedidos x local x canal (Mensual)',
+  // Tab "Base pedidos x canal" — 1 fila por (local, mes), con orders y
+  // revenue por cada canal en columnas paralelas. Fuente de verdad para
+  // SalesByChannel (todos los locales de la red).
+  baseChannels: 'Base pedidos x canal',
+  // Tab "Análisis Jiro" — totales agregados de red por mes (para KPIs).
   monthlyTotal: 'Análisis Jiro',
 } as const;
 
-// Whitelist de canales — comparación EXACTA (sin trim). Así las filas
-// duplicadas del sheet como "Rappi " (con espacio final, que es el subtotal
-// del grupo Rappi) NO matchean con "Rappi" y van a skippedChannels —
-// evitamos doble conteo.
-const CANONICAL_CHANNEL_SET = new Set<string>(CHANNELS);
+// Mapping de nombres de canal del sheet → canales canónicos del schema.
+// - "WhatsApp" del sheet corresponde al canal "Local" en nuestra DB.
+// - "Nucleo" del sheet es el TOTAL del local (suma de todos los canales) —
+//   se ignora para no duplicar la facturación.
+const SHEET_TO_CANONICAL_CHANNEL: Record<string, string> = {
+  'Rappi Turbo': 'Rappi Turbo',
+  'Rappi': 'Rappi',
+  'Rappi veggie': 'Rappi Veggie',
+  'Más delivery': 'Mas delivery',
+  'Pedidos Ya': 'Pedidos Ya',
+  'Mercado Pago': 'Mercado Pago',
+  'Mercado Pago Veggie': 'Mercado Pago Veggie',
+  'WhatsApp': 'Local',
+};
 
 // Parsea un valor tipo " $1.076.090" → 1076090. También acepta ints/floats
 // crudos (por si el sheet cambia el formato).
@@ -378,24 +390,52 @@ function resolveSheetYear(): string {
   return String(new Date().getFullYear());
 }
 
-// Parser del pivot. Devuelve un array de {local, mes(1-12), channel, value}.
+// Parser del tab "Base pedidos x canal". Layout limpio, tabular:
+//   fila 1: headers → "Mes","Mes#","Local","Rappi Turbo","Rappi",..."WhatsApp","Nucleo",
+//                     "Rappi Turbo $","Rappi $",..."WhatsApp $","Nucleo $","Ticket..."
+//   fila 2+: cada fila = { mes, mes#, local, ...orders por canal, ...revenue $ por canal, ...tickets }
 //
-// Layout del sheet fuente (por cada local):
-//   ┌ nombre del local (col A, resto vacío)     ← "Adrogue"
-//   ├ "Canal","1","2","","3",...                 ← header meses (valores $)
-//   ├ "Rappi"," $X"," $Y",...
-//   ├ ...más canales...
-//   ├ "Total"...                                  ← subtotal $
-//   ├ "Canal","1","2","",...                     ← header repetido (variación %)
-//   ├ "Rappi","-70%","-67%",...
-//   ├ ...canales con %...
-//   ├ "Total"..."%"                              ← subtotal %
-//   └ (siguiente local...)
-//
-// Estrategia: iterar TODA la fila trackeando currentLocal + monthCols.
-// Solo procesamos filas con valores $ (celda contiene "$"). Las filas del
-// bloque de variación % se ignoran automáticamente porque sus valores no
-// tienen "$".
+// Devuelve array de {local, monthNum, channel(canonical), orders, revenue}.
+// Los canales sin mapping en SHEET_TO_CANONICAL_CHANNEL se ignoran
+// (ej. "Nucleo" que es el total del local).
+function parseBaseChannelsTab(rows: string[][]): Array<{ local: string; monthNum: number; channel: string; orders: number; revenue: number }> {
+  const out: Array<{ local: string; monthNum: number; channel: string; orders: number; revenue: number }> = [];
+  if (rows.length < 2) return out;
+  const headers = rows[0].map((h) => String(h || '').trim());
+
+  // Descubrir columnas por canal: para cada canal del mapping, encontramos su
+  // col de orders (header exact match) y su col de revenue (header + " $").
+  const channelCols: Array<{ ordersCol: number; revenueCol: number; canonical: string }> = [];
+  for (const [sheetName, canonical] of Object.entries(SHEET_TO_CANONICAL_CHANNEL)) {
+    const ordersCol = headers.indexOf(sheetName);
+    const revenueCol = headers.indexOf(`${sheetName} $`);
+    if (ordersCol >= 0 && revenueCol >= 0) {
+      channelCols.push({ ordersCol, revenueCol, canonical });
+    }
+  }
+  const localCol = headers.indexOf('Local');
+  const monthCol = headers.indexOf('Mes#');
+  if (localCol < 0 || monthCol < 0 || channelCols.length === 0) return out;
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i] || [];
+    const local = String(row[localCol] || '').trim();
+    if (!local) continue;
+    const monthNum = Number(String(row[monthCol] || '').trim());
+    if (!Number.isInteger(monthNum) || monthNum < 1 || monthNum > 12) continue;
+    for (const { ordersCol, revenueCol, canonical } of channelCols) {
+      const orders = Number(String(row[ordersCol] || '').replace(/[.\s]/g, '')) || 0;
+      const revenue = parsePivotValue(row[revenueCol]);
+      // Guardamos incluso los ceros para que se sobreescriban valores viejos.
+      out.push({ local, monthNum, channel: canonical, orders, revenue });
+    }
+  }
+  return out;
+}
+
+// Parser legacy del pivot — se dejaba de un tab que solo tenía 2 locales.
+// Reemplazado por parseBaseChannelsTab. Se mantiene la firma por si alguien
+// vuelve a usarlo, pero el sync-sheet ya no lo llama.
 function parsePivotTab(rows: string[][]): Array<{ local: string; monthNum: number; channel: string; value: number }> {
   const out: Array<{ local: string; monthNum: number; channel: string; value: number }> = [];
   let currentLocal = '';
@@ -500,63 +540,30 @@ router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthReq
       return;
     }
 
-    const [revenueRows, ordersRows, jiroRows] = await Promise.all([
-      readSheet(spreadsheetId, SHEET_TABS.revenue),
-      readSheet(spreadsheetId, SHEET_TABS.orders),
+    const [baseRows, jiroRows] = await Promise.all([
+      readSheet(spreadsheetId, SHEET_TABS.baseChannels),
       readSheet(spreadsheetId, SHEET_TABS.monthlyTotal),
     ]);
 
-    const revenueParsed = parsePivotTab(revenueRows);
-    const ordersParsed = parsePivotTab(ordersRows);
+    const baseParsed = parseBaseChannelsTab(baseRows);
     const monthlyTotalsParsed = parseAnalisisJiroTab(jiroRows);
 
     const year = resolveSheetYear();
     const franchises = await prisma.franchise.findMany({ select: { id: true, name: true } });
 
-    // Merge por (local, periodo, channel). Aceptamos 0 si el sheet no
-    // tiene una de las dos métricas para esa combinación.
-    type Key = string;
-    const bucket = new Map<Key, { local: string; periodo: string; channel: string; orders: number; revenue: number }>();
-    const keyOf = (local: string, periodo: string, channel: string) => `${local}|${periodo}|${channel}`;
-
     const missingFranchises = new Set<string>();
-    const skippedChannels = new Set<string>();
 
-    const absorb = (arr: Array<{ local: string; monthNum: number; channel: string; value: number }>, kind: 'orders' | 'revenue') => {
-      for (const r of arr) {
-        // Comparación EXACTA con la whitelist — "Rappi " (con espacio, que
-        // es el subtotal del grupo Rappi en el sheet) NO matchea con "Rappi"
-        // → va a skippedChannels y se evita el doble conteo.
-        if (!CANONICAL_CHANNEL_SET.has(r.channel)) {
-          skippedChannels.add(r.channel);
-          continue;
-        }
-        const periodo = `${year}-${String(r.monthNum).padStart(2, '0')}`;
-        const k = keyOf(r.local, periodo, r.channel);
-        let entry = bucket.get(k);
-        if (!entry) {
-          entry = { local: r.local, periodo, channel: r.channel, orders: 0, revenue: 0 };
-          bucket.set(k, entry);
-        }
-        // Suma en vez de pisar: si el sheet tiene filas duplicadas con el
-        // mismo canal (ej. "Mercado Pago" aparece 2 veces), suman sus valores.
-        entry[kind] += r.value;
-      }
-    };
-    absorb(revenueParsed, 'revenue');
-    absorb(ordersParsed, 'orders');
-
-    // Resolver local → franchiseId. Los que no matchean van a missingFranchises.
+    // Resolver local → franchiseId por cada fila del tab "Base pedidos x canal".
     const finalRows: Array<{ franchiseId: string; periodo: string; channel: string; orders: number; revenue: number }> = [];
-    for (const entry of bucket.values()) {
-      const fid = matchFranchiseId(entry.local, franchises);
-      if (!fid) { missingFranchises.add(entry.local); continue; }
+    for (const r of baseParsed) {
+      const fid = matchFranchiseId(r.local, franchises);
+      if (!fid) { missingFranchises.add(r.local); continue; }
       finalRows.push({
         franchiseId: fid,
-        periodo: entry.periodo,
-        channel: entry.channel,
-        orders: entry.orders,
-        revenue: entry.revenue,
+        periodo: `${year}-${String(r.monthNum).padStart(2, '0')}`,
+        channel: r.channel,
+        orders: r.orders,
+        revenue: r.revenue,
       });
     }
 
@@ -586,7 +593,6 @@ router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthReq
       channelRowsUpserted: finalRows.length,
       monthlyTotalsUpserted,
       missingFranchises: Array.from(missingFranchises),
-      skippedChannels: Array.from(skippedChannels),
       note: 'SalesWeekday no se sincroniza desde el sheet (queda igual — se llena con el JSON de import o CSV upload).',
     });
   } catch (err: any) {
