@@ -532,6 +532,152 @@ function parseAnalisisJiroTab(rows: string[][]): Array<{ monthNum: number; order
   return out;
 }
 
+// ── Recompute alertas ─────────────────────────────────────
+// Se llama después del sync. Calcula 2 tipos de alerta para el `periodo`
+// dado, hace upsert de las que corresponden y borra las que ya no aplican
+// (excepto si están dismissed=true, que quedan en histórico).
+const LOW_TICKET_RATIO = 0.7; // 30% por debajo del promedio de red
+const LOCAL_CHANNEL = 'Local';
+
+export async function computeSalesAlerts(periodo: string): Promise<{ upserted: number; deleted: number; skippedDismissed: number }> {
+  // Traer todas las ventas del período agrupadas por franquicia.
+  const rows = await prisma.salesByChannel.findMany({
+    where: { periodo },
+    select: { franchiseId: true, channel: true, orders: true, revenue: true },
+  });
+  if (rows.length === 0) return { upserted: 0, deleted: 0, skippedDismissed: 0 };
+
+  // Agrupar por franchise: (revenue local, revenue otros, orders totales, revenue totales).
+  type Agg = { localRev: number; othersRev: number; totalRev: number; totalOrders: number };
+  const byFranchise = new Map<string, Agg>();
+  let networkRev = 0;
+  let networkOrders = 0;
+  for (const r of rows) {
+    const a = byFranchise.get(r.franchiseId) || { localRev: 0, othersRev: 0, totalRev: 0, totalOrders: 0 };
+    if (r.channel === LOCAL_CHANNEL) a.localRev += r.revenue;
+    else a.othersRev += r.revenue;
+    a.totalRev += r.revenue;
+    a.totalOrders += r.orders;
+    byFranchise.set(r.franchiseId, a);
+    networkRev += r.revenue;
+    networkOrders += r.orders;
+  }
+  const networkTicket = networkOrders > 0 ? networkRev / networkOrders : 0;
+
+  // Construir el set de alertas que deben existir.
+  type Trigger = { type: string; franchiseId: string; localRevenue?: number; othersRevenue?: number; ticketLocal?: number; ticketNetwork?: number };
+  const triggers: Trigger[] = [];
+  for (const [franchiseId, a] of byFranchise.entries()) {
+    // Solo tiene sentido si el local tuvo actividad en el mes.
+    if (a.totalRev <= 0) continue;
+
+    // 1) Canal "Local" (WhatsApp) por debajo de la suma del resto.
+    //    Requerimos que exista actividad en "otros" > 0, si no la alerta
+    //    no aplica (todos los canales del local están en 0).
+    if (a.othersRev > 0 && a.localRev < a.othersRev) {
+      triggers.push({
+        type: 'local_channel_underperform',
+        franchiseId,
+        localRevenue: a.localRev,
+        othersRevenue: a.othersRev,
+      });
+    }
+
+    // 2) Ticket promedio muy por debajo del promedio de red.
+    if (networkTicket > 0 && a.totalOrders > 0) {
+      const ticketLocal = a.totalRev / a.totalOrders;
+      if (ticketLocal < networkTicket * LOW_TICKET_RATIO) {
+        triggers.push({
+          type: 'low_ticket',
+          franchiseId,
+          ticketLocal,
+          ticketNetwork: networkTicket,
+        });
+      }
+    }
+  }
+
+  // Reconciliar contra las alertas existentes del período.
+  const existing = await prisma.salesAlert.findMany({ where: { periodo } });
+  const existingKey = new Map(existing.map((a) => [`${a.type}|${a.franchiseId}`, a]));
+  const triggerKeys = new Set(triggers.map((t) => `${t.type}|${t.franchiseId}`));
+
+  let upserted = 0;
+  let deleted = 0;
+  let skippedDismissed = 0;
+
+  // Upsert cada trigger nuevo / actualizar valores de los existentes.
+  for (const t of triggers) {
+    const k = `${t.type}|${t.franchiseId}`;
+    const prev = existingKey.get(k);
+    if (prev?.dismissed) { skippedDismissed++; continue; }
+    await prisma.salesAlert.upsert({
+      where: { type_franchiseId_periodo: { type: t.type, franchiseId: t.franchiseId, periodo } },
+      create: {
+        type: t.type,
+        franchiseId: t.franchiseId,
+        periodo,
+        localRevenue: t.localRevenue,
+        othersRevenue: t.othersRevenue,
+        ticketLocal: t.ticketLocal,
+        ticketNetwork: t.ticketNetwork,
+      },
+      update: {
+        localRevenue: t.localRevenue,
+        othersRevenue: t.othersRevenue,
+        ticketLocal: t.ticketLocal,
+        ticketNetwork: t.ticketNetwork,
+      },
+    });
+    upserted++;
+  }
+
+  // Borrar alertas del período que YA NO SE CUMPLEN (excepto dismissed:
+  // dismissed queda como histórico así el user ve que la resolvió).
+  for (const a of existing) {
+    const k = `${a.type}|${a.franchiseId}`;
+    if (!triggerKeys.has(k) && !a.dismissed) {
+      await prisma.salesAlert.delete({ where: { id: a.id } });
+      deleted++;
+    }
+  }
+
+  return { upserted, deleted, skippedDismissed };
+}
+
+// GET /api/sales/alerts?active=1 (default 1) → alertas no dismissed.
+// ?all=1 → incluye dismissed. ?periodo=YYYY-MM → filtra por período.
+router.get('/alerts', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const includeAll = req.query.all === '1';
+    const periodo = typeof req.query.periodo === 'string' ? req.query.periodo : undefined;
+    const where: Record<string, unknown> = {};
+    if (!includeAll) where.dismissed = false;
+    if (periodo) where.periodo = periodo;
+    const alerts = await prisma.salesAlert.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }],
+      include: { franchise: { select: { id: true, name: true } } },
+    });
+    res.json(alerts);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Error al listar alertas' });
+  }
+});
+
+// PATCH /api/sales/alerts/:id/dismiss → marca dismissed.
+router.patch('/alerts/:id/dismiss', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const updated = await prisma.salesAlert.update({
+      where: { id: req.params.id as string },
+      data: { dismissed: true, dismissedAt: new Date(), dismissedBy: req.userId || null },
+    });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Error al descartar la alerta' });
+  }
+});
+
 router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthRequest, res: Response) => {
   try {
     const spreadsheetId = process.env.SALES_SHEET_ID;
@@ -588,10 +734,22 @@ router.post('/sync-sheet', authenticate, requireSuperadmin, async (_req: AuthReq
       monthlyTotalsUpserted++;
     }
 
+    // Recalcular alertas para todos los períodos que trajimos.
+    const periodosSync = Array.from(new Set(finalRows.map((r) => r.periodo)));
+    let alertsUpserted = 0;
+    let alertsDeleted = 0;
+    for (const p of periodosSync) {
+      const r = await computeSalesAlerts(p);
+      alertsUpserted += r.upserted;
+      alertsDeleted += r.deleted;
+    }
+
     res.json({
       tabsProcessed: Object.values(SHEET_TABS),
       channelRowsUpserted: finalRows.length,
       monthlyTotalsUpserted,
+      alertsUpserted,
+      alertsDeleted,
       missingFranchises: Array.from(missingFranchises),
       note: 'SalesWeekday no se sincroniza desde el sheet (queda igual — se llena con el JSON de import o CSV upload).',
     });

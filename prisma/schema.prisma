@@ -115,6 +115,7 @@ model Franchise {
   royalties Royalty[]
   ads       AdIncome[]
   salesByChannel SalesByChannel[]
+  salesAlerts    SalesAlert[]
 
   zone   Zone?   @relation(fields: [zoneId], references: [id])
   zoneId String?
@@ -613,6 +614,35 @@ model SalesByChannel {
   @@unique([franchiseId, periodo, channel])
   @@index([periodo])
   @@index([franchiseId])
+}
+
+// Alertas automáticas sobre la performance de un local. Se recalculan
+// en cada sync del sheet. Persisten hasta que un user las marca dismiss.
+// - type='local_channel_underperform': el canal 'Local' (WhatsApp) de un
+//   local del mes queda por debajo de la suma del resto de canales →
+//   sospecha de pedidos WhatsApp no cargados en el POS.
+// - type='low_ticket': ticket promedio del local del mes < 70% del ticket
+//   promedio de la red ese mes.
+model SalesAlert {
+  id            String    @id @default(cuid())
+  type          String
+  franchise     Franchise @relation(fields: [franchiseId], references: [id], onDelete: Cascade)
+  franchiseId   String
+  periodo       String
+  // Contexto de la alerta (se usa según type):
+  localRevenue  Float?
+  othersRevenue Float?
+  ticketLocal   Float?
+  ticketNetwork Float?
+  dismissed     Boolean   @default(false)
+  dismissedAt   DateTime?
+  dismissedBy   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([type, franchiseId, periodo])
+  @@index([dismissed])
+  @@index([periodo])
 }
 
 // Totales agregados de red por mes. Se llenan sincronizando el tab
