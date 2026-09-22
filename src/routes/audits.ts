@@ -4,12 +4,17 @@ import { authenticate, requireSuperadmin, AuthRequest } from '../middleware/auth
 
 const router = Router();
 
-// GET /api/audits — list audits, optionally filtered by franchiseId
+// GET /api/audits — list audits, optionally filtered by franchiseId.
+// Rol FRANQUICIA: siempre se fuerza el filtro por la franquicia del token,
+// aunque el cliente pida otra. Sin franquicia asignada devuelve [].
 router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { franchiseId } = req.query;
     const where: any = {};
     if (franchiseId) where.franchiseId = franchiseId;
+    if (req.userRole === 'FRANQUICIA') {
+      where.franchiseId = req.userFranchiseId || '__none__';
+    }
 
     const audits = await prisma.audit.findMany({
       where,
@@ -25,7 +30,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   }
 });
 
-// GET /api/audits/:id — single audit detail
+// GET /api/audits/:id — single audit detail. Scope FRANQUICIA aplica.
 router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const audit = await prisma.audit.findUnique({
@@ -36,6 +41,10 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
       },
     });
     if (!audit) {
+      res.status(404).json({ error: 'Auditoría no encontrada' });
+      return;
+    }
+    if (req.userRole === 'FRANQUICIA' && audit.franchiseId !== req.userFranchiseId) {
       res.status(404).json({ error: 'Auditoría no encontrada' });
       return;
     }
