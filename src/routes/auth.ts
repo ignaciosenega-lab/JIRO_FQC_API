@@ -22,7 +22,11 @@ router.post('/login', async (req: Request, res: Response) => {
       return;
     }
 
-    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET!, { expiresIn: '7d' });
+    const token = jwt.sign(
+      { id: user.id, role: user.role, franchiseId: user.franchiseId ?? null },
+      process.env.JWT_SECRET!,
+      { expiresIn: '7d' }
+    );
     const { password: _, ...userWithoutPassword } = user;
     res.json({ token, user: userWithoutPassword });
   } catch (err) {

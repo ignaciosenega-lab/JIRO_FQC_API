@@ -116,6 +116,7 @@ model Franchise {
   ads       AdIncome[]
   salesByChannel SalesByChannel[]
   salesAlerts    SalesAlert[]
+  openings       Opening[]
 
   zone   Zone?   @relation(fields: [zoneId], references: [id])
   zoneId String?
@@ -700,24 +701,30 @@ model OpeningTaskTemplate {
 }
 
 model Opening {
-  id                    String    @id @default(cuid())
+  id                    String     @id @default(cuid())
   localName             String
-  zona                  String    @default("")
-  franquiciado          String    @default("")
-  respOperaciones       User?     @relation("OpeningOps", fields: [respOperacionesId], references: [id], onDelete: SetNull)
+  zona                  String     @default("")
+  franquiciado          String     @default("")
+  respOperaciones       User?      @relation("OpeningOps", fields: [respOperacionesId], references: [id], onDelete: SetNull)
   respOperacionesId     String?
-  respMarketing         User?     @relation("OpeningMkt", fields: [respMarketingId], references: [id], onDelete: SetNull)
+  respMarketing         User?      @relation("OpeningMkt", fields: [respMarketingId], references: [id], onDelete: SetNull)
   respMarketingId       String?
+  // Link opcional a la Franchise (cuando ya existe en la DB). Se usa para
+  // el scoping de rol FRANQUICIA: un franquiciado solo ve el opening de
+  // su propia Franchise.
+  franchise             Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
+  franchiseId           String?
   fechaObjetivoApertura DateTime?
-  status                String    @default("en_curso") // 'en_curso' | 'abierta' | 'cancelada'
-  notas                 String    @default("")
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  status                String     @default("en_curso") // 'en_curso' | 'abierta' | 'cancelada'
+  notas                 String     @default("")
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
 
   tasks OpeningTask[]
 
   @@index([status])
   @@index([fechaObjetivoApertura])
+  @@index([franchiseId])
 }
 
 model OpeningTask {

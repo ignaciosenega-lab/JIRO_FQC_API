@@ -6,6 +6,7 @@ export type AppRole = 'SUPERADMIN' | 'MANAGER' | 'OPERACIONES' | 'FRANQUICIA' | 
 export interface AuthRequest extends Request {
   userId?: string;
   userRole?: AppRole;
+  userFranchiseId?: string | null;
 }
 
 export function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
@@ -16,9 +17,10 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string; role: AppRole };
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string; role: AppRole; franchiseId?: string | null };
     req.userId = decoded.id;
     req.userRole = decoded.role;
+    req.userFranchiseId = decoded.franchiseId ?? null;
     next();
   } catch {
     res.status(401).json({ error: 'Token inválido' });

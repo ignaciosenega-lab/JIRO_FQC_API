@@ -9,6 +9,14 @@ const router = Router();
 // SUPERADMIN, MANAGER y OPERACIONES pueden crear/editar aperturas y tareas.
 const requireOpeningsEditor = requireRole('SUPERADMIN', 'MANAGER', 'OPERACIONES');
 
+// El rol FRANQUICIA solo ve los openings de su propia Franchise. Aplicamos
+// el filtro sobre el where. Si el user no tiene franchiseId, devuelve array
+// vacío (no ve nada — no puede fisguonear otros locales).
+function applyFranchiseScopedWhere(req: AuthRequest, where: Record<string, unknown>): Record<string, unknown> {
+  if (req.userRole !== 'FRANQUICIA') return where;
+  return { ...where, franchiseId: req.userFranchiseId || '__none__' };
+}
+
 const VALID_ESTADOS = new Set(['pendiente', 'en_proceso', 'completada', 'bloqueada']);
 const VALID_STATUS = new Set(['en_curso', 'abierta', 'cancelada']);
 
@@ -74,7 +82,8 @@ const TASK_INCLUDE = {
 router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const rawStatus = typeof req.query.status === 'string' ? req.query.status : 'en_curso';
-    const where = rawStatus === 'all' ? {} : { status: rawStatus };
+    const baseWhere = rawStatus === 'all' ? {} : { status: rawStatus };
+    const where = applyFranchiseScopedWhere(req, baseWhere);
 
     const openings = await prisma.opening.findMany({
       where,
@@ -142,6 +151,11 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
       res.status(404).json({ error: 'Apertura no encontrada' });
       return;
     }
+    // Scope FRANQUICIA: solo el opening de su franchise.
+    if (req.userRole === 'FRANQUICIA' && opening.franchiseId !== req.userFranchiseId) {
+      res.status(404).json({ error: 'Apertura no encontrada' });
+      return;
+    }
     res.json(opening);
   } catch (err) {
     console.error('[openings] GET /:id error:', err);
@@ -176,6 +190,7 @@ router.post('/', authenticate, requireOpeningsEditor, async (req: AuthRequest, r
           franquiciado: (b.franquiciado || '').toString().trim(),
           respOperacionesId: b.respOperacionesId || null,
           respMarketingId: b.respMarketingId || null,
+          franchiseId: b.franchiseId || null,
           fechaObjetivoApertura: parseDate(b.fechaObjetivoApertura) ?? null,
           notas: (b.notas || '').toString(),
         },
@@ -228,6 +243,7 @@ router.patch('/:id', authenticate, requireOpeningsEditor, async (req: AuthReques
     if (typeof b.franquiciado === 'string') data.franquiciado = b.franquiciado;
     if (b.respOperacionesId !== undefined) data.respOperacionesId = b.respOperacionesId || null;
     if (b.respMarketingId !== undefined) data.respMarketingId = b.respMarketingId || null;
+    if (b.franchiseId !== undefined) data.franchiseId = b.franchiseId || null;
     if (b.fechaObjetivoApertura !== undefined) {
       const parsed = parseDate(b.fechaObjetivoApertura);
       if (parsed !== undefined) data.fechaObjetivoApertura = parsed;
@@ -261,18 +277,45 @@ router.delete('/:id', authenticate, requireOpeningsEditor, async (req: AuthReque
 // Actualiza estado / fecha / notas / diasEstimados y también el conjunto
 // completo de responsables (assignedToIds = array). Si se pasa assignedToIds,
 // se reemplaza el set completo (delete-all + createMany en pivot).
-router.patch('/:id/tasks/:taskId', authenticate, requireOpeningsEditor, async (req: AuthRequest, res: Response) => {
+//
+// Permisos:
+// - SUPERADMIN / MANAGER / OPERACIONES: editor completo (todos los campos).
+// - FRANQUICIA: solo puede togglear el `estado` de tareas de SU apertura
+//   (matching por franchiseId). Cualquier otro campo en el body es rechazado.
+router.patch('/:id/tasks/:taskId', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const b = req.body || {};
     const taskId = req.params.taskId as string;
     const openingId = req.params.id as string;
 
+    const isEditor = req.userRole && ['SUPERADMIN', 'MANAGER', 'OPERACIONES'].includes(req.userRole);
+    const isFranquicia = req.userRole === 'FRANQUICIA';
+    if (!isEditor && !isFranquicia) { res.status(403).json({ error: 'Acceso denegado' }); return; }
+
     // Chequeo pertenencia antes de tocar nada.
-    const existing = await prisma.openingTask.findUnique({ where: { id: taskId }, select: { openingId: true } });
+    const existing = await prisma.openingTask.findUnique({
+      where: { id: taskId },
+      select: { openingId: true, opening: { select: { franchiseId: true } } },
+    });
     if (!existing) { res.status(404).json({ error: 'Tarea no encontrada' }); return; }
     if (existing.openingId !== openingId) {
       res.status(400).json({ error: 'La tarea no pertenece a esa apertura' });
       return;
+    }
+
+    // Guard adicional para FRANQUICIA: opening.franchiseId debe coincidir con
+    // el franchiseId del token, y el body solo puede tener `estado`.
+    if (isFranquicia) {
+      if (!req.userFranchiseId || existing.opening.franchiseId !== req.userFranchiseId) {
+        res.status(403).json({ error: 'No podés editar tareas de otra apertura' });
+        return;
+      }
+      const allowedKeys = new Set(['estado']);
+      const invalidKeys = Object.keys(b).filter((k) => !allowedKeys.has(k));
+      if (invalidKeys.length > 0) {
+        res.status(403).json({ error: `Como franquiciado solo podés cambiar el estado de la tarea (recibí: ${invalidKeys.join(', ')})` });
+        return;
+      }
     }
 
     const data: Record<string, unknown> = {};
