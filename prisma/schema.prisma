@@ -778,7 +778,22 @@ model FranchiseLead {
   mensaje   String   @default("")
   estado    String   @default("nuevo")
   notas     String   @default("")
-  origen    String   @default("landing")
+  origen    String   @default("landing") // 'landing' | 'manual' (bucket interno)
+
+  // Atribución — capturados en la landing desde los query params del
+  // visitante. Se usan para resolver el "canal de tráfico" (Meta Ads,
+  // Google Ads, Orgánico, Directo…) en el panel. Todos opcionales porque
+  // los leads viejos o los "manual" no los tienen.
+  utmSource   String? // utm_source: 'meta', 'google', 'newsletter', …
+  utmMedium   String? // utm_medium: 'cpc', 'email', 'social'
+  utmCampaign String? // utm_campaign: nombre de la campaña
+  utmContent  String?
+  utmTerm     String?
+  gclid       String? // Google Ads click id (auto-tagging)
+  fbclid      String? // Meta/Facebook click id (auto)
+  referrer    String? // document.referrer de la landing
+  landingPath String? // pathname + search de la URL donde cargó el form
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -789,4 +804,5 @@ model FranchiseLead {
   @@index([estado])
   @@index([createdAt])
   @@index([assignedToId])
+  @@index([utmSource])
 }

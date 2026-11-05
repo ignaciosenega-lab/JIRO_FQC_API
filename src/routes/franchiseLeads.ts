@@ -91,6 +91,15 @@ router.post('/', async (req: Request, res: Response) => {
       assignedToId = await pickNextAssignee();
     }
 
+    // Atribución (opcional) — enviada desde la landing. Truncamos a 500
+    // chars para evitar payloads enormes / bombas.
+    const cap = (v: unknown): string | null => {
+      if (typeof v !== 'string') return null;
+      const t = v.trim();
+      return t ? t.slice(0, 500) : null;
+    };
+    const b = req.body || {};
+
     const lead = await prisma.franchiseLead.create({
       data: {
         nombre: nombre.trim(),
@@ -101,6 +110,15 @@ router.post('/', async (req: Request, res: Response) => {
         notas: (notas || '').toString().trim(),
         origen,
         assignedToId,
+        utmSource: cap(b.utmSource),
+        utmMedium: cap(b.utmMedium),
+        utmCampaign: cap(b.utmCampaign),
+        utmContent: cap(b.utmContent),
+        utmTerm: cap(b.utmTerm),
+        gclid: cap(b.gclid),
+        fbclid: cap(b.fbclid),
+        referrer: cap(b.referrer),
+        landingPath: cap(b.landingPath),
       },
     });
     res.status(201).json({ success: true, id: lead.id, assignedToId });
